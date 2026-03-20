@@ -34,119 +34,22 @@ jobs:
           echo "标签名: ${{ github.event.release.tag_name || github.event.inputs.tag_name }}"
       
       # 测试模式：创建测试 PDF
-      - name: 测试模式 - 创建测试 PDF
+      - name: 测试模式 - 创建测试文件
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.test_mode == 'true'
         run: |
-          echo "🔧 测试模式：创建测试 PDF"
-          echo "# Test PDF" > test.md
-          echo "This is a test PDF generated at $(date)" >> test.md
-          echo "" >> test.md
-          echo "![test image](https://via.placeholder.com/150)" >> test.md
-      
-      # 使用 markdown-to-pdf Action 编译（支持网络图片）
-      - name: 编译 Markdown 为 PDF
-        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.test_mode != 'true')
-        uses: baileyjm02/markdown-to-pdf@v1
-        with:
-          input_dir: .
-          input_files: ae2.md
-          output_dir: .
-          images_dir: .
-          image_import: .
-          build_html: false
-          table_of_contents: true
-      
-      # 测试模式：使用同一个 Action 编译测试文件
-      - name: 编译测试 PDF
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.test_mode == 'true'
-        uses: baileyjm02/markdown-to-pdf@v1
-        with:
-          input_dir: .
-          input_files: test.md
-          output_dir: .
-          images_dir: .
-          image_import: .
-          build_html: false
-      
-      # 重命名 PDF 文件（如果需要）
-      - name: 重命名 PDF 文件
-        run: |
-          # 查找生成的 PDF 文件
-          echo "查找 PDF 文件..."
-          find . -name "*.pdf" -type f
-          
-          # 如果有 ae2.pdf 但没有 ae2-documentation.pdf
-          if [ -f "ae2.pdf" ] && [ ! -f "ae2-documentation.pdf" ]; then
-            mv ae2.pdf ae2-documentation.pdf
-            echo "重命名 ae2.pdf -> ae2-documentation.pdf"
-          fi
-          
-          # 测试模式重命名
-          if [ "${{ github.event.inputs.test_mode }}" == "true" ] && [ -f "test.pdf" ]; then
-            mv test.pdf test-document.pdf
-            echo "重命名 test.pdf -> test-document.pdf"
-          fi
-      
-      # 验证文件存在
-      - name: 验证文件存在
-        id: verify-file
-        run: |
-          if [ "${{ github.event.inputs.test_mode }}" == "true" ]; then
-            FILE_PATH="test-document.pdf"
-            FILE_NAME="test-document.pdf"
-            # 如果重命名失败，尝试原文件名
-            if [ ! -f "$FILE_PATH" ] && [ -f "test.pdf" ]; then
-              FILE_PATH="test.pdf"
-            fi
-          else
-            FILE_PATH="ae2-documentation.pdf"
-            FILE_NAME="ae2-documentation.pdf"
-            # 如果重命名失败，尝试原文件名
-            if [ ! -f "$FILE_PATH" ] && [ -f "ae2.pdf" ]; then
-              FILE_PATH="ae2.pdf"
-            fi
-          fi
-          
-          echo "file_path=$FILE_PATH" >> $GITHUB_OUTPUT
-          echo "file_name=$FILE_NAME" >> $GITHUB_OUTPUT
-          
-          if [ -f "$FILE_PATH" ]; then
-            echo "✅ 文件存在: $FILE_PATH"
-            ls -lh "$FILE_PATH"
-          else
-            echo "❌ 文件不存在: $FILE_PATH"
-            echo "当前目录内容："
-            ls -la
-            exit 1
-          fi
-      
-      # 获取标签名
-      - name: 设置标签名
-        id: set-tag
-        run: |
-          TAG_NAME="${{ github.event.release.tag_name || github.event.inputs.tag_name }}"
-          echo "tag_name=${TAG_NAME:-test}" >> $GITHUB_OUTPUT
-      
-      # 上传到 Release
-      - name: 上传到 Release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: ${{ steps.verify-file.outputs.file_path }}
-          tag_name: ${{ steps.set-tag.outputs.tag_name }}
-          make_latest: true
-          name: "AE2 Tutorial - ${{ steps.set-tag.outputs.tag_name }}"
-          body: |
-            ## AE2 教程文档
-            
-            此 Release 包含自动生成的 PDF 文档。
-            
-            - **源文件**: `ae2.md`
-        env:
-          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
-      
-      - name: 显示上传完成
-        run: |
-          echo "✅ 上传完成"
-          echo "Release 标签: ${{ steps.set-tag.outputs.tag_name }}"
-          echo "文件名称: ${{ steps.verify-file.outputs.file_name }}"
-          echo "查看地址: https://github.com/${{ github.repository }}/releases/tag/${{ steps.set-tag.outputs.tag_name }}"
+          echo "🔧 测试模式：创建测试 Markdown"
+          cat > test.md << 'EOF'
+# Test PDF
+
+This is a test PDF generated at $(date)
+
+## Features
+- Network image support
+- GitHub Actions integration
+- Auto upload to Releases
+
+![Test Image](https://via.placeholder.com/400x200.png?text=Test+Image)
+
+## Code Example
+```python
+print("Hello, World!")
