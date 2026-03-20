@@ -33,6 +33,15 @@ jobs:
           echo "测试模式: ${{ github.event.inputs.test_mode }}"
           echo "标签名: ${{ github.event.release.tag_name || github.event.inputs.tag_name }}"
       
+      # 生成时间戳
+      - name: 生成时间戳
+        id: timestamp
+        run: |
+          # 生成当前时间戳
+          CURRENT_TIME=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          echo "current_time=$CURRENT_TIME" >> $GITHUB_OUTPUT
+          echo "生成时间: $CURRENT_TIME"
+      
       # 安装依赖和中文字体
       - name: 安装依赖和中文字体
         run: |
@@ -59,7 +68,7 @@ jobs:
         run: |
           echo "🔧 测试模式：创建测试 PDF"
           echo "# 测试 PDF" > test.md
-          echo "这是一个测试 PDF，生成于 $(date)" >> test.md
+          echo "这是一个测试 PDF，生成于 ${{ steps.timestamp.outputs.current_time }}" >> test.md
           echo "" >> test.md
           echo "## 中文测试" >> test.md
           echo "这是一段中文文本，测试字体是否正常显示。" >> test.md
@@ -92,8 +101,8 @@ jobs:
             --metadata pagetitle="Applied Energistics 2 Tutorial" \
             --metadata charset=utf-8
           
-          # 创建带中文字体支持的 HTML 包装器
-          cat > pdf-wrapper.html << 'EOF'
+          # 创建带中文字体支持的 HTML 包装器，并注入生成时间
+          cat > pdf-wrapper.html << EOF
           <!DOCTYPE html>
           <html>
           <head>
@@ -139,11 +148,23 @@ jobs:
               th {
                 background-color: #f2f2f2;
               }
+              .footer-note {
+                margin-top: 50px;
+                padding-top: 20px;
+                border-top: 1px solid #ddd;
+                font-size: 12px;
+                color: #666;
+                text-align: center;
+              }
             </style>
           </head>
           <body>
             <div class="content">
               $(cat output.html)
+            </div>
+            <div class="footer-note">
+              <p>文档生成时间: ${{ steps.timestamp.outputs.current_time }}</p>
+              <p>源文件: ae2.md | 自动生成于 GitHub Actions</p>
             </div>
           </body>
           </html>
@@ -212,6 +233,30 @@ jobs:
           TAG_NAME="${{ github.event.release.tag_name || github.event.inputs.tag_name }}"
           echo "tag_name=${TAG_NAME:-test}" >> $GITHUB_OUTPUT
       
+      # 生成 Release 说明（包含动态时间）
+      - name: 生成 Release 说明
+        id: release-body
+        run: |
+          cat > release_body.md << EOF
+          ## AE2 教程文档
+          
+          此 Release 包含自动生成的 PDF 文档。
+          
+          - **源文件**: \`ae2.md\`
+          - **生成时间**: ${{ steps.timestamp.outputs.current_time }}
+          - **触发方式**: ${{ github.event_name }}
+          - **测试模式**: ${{ github.event.inputs.test_mode || 'false' }}
+          
+          ### 文档说明
+          该 PDF 由 GitHub Actions 自动编译生成，包含 AE2（Applied Energistics 2）的教程内容。
+          EOF
+          
+          # 将内容保存为变量
+          BODY_CONTENT=$(cat release_body.md)
+          echo "body<<EOF" >> $GITHUB_OUTPUT
+          echo "$BODY_CONTENT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+      
       # 上传到 Release
       - name: 上传到 Release
         uses: softprops/action-gh-release@v1
@@ -220,15 +265,7 @@ jobs:
           tag_name: ${{ steps.set-tag.outputs.tag_name }}
           make_latest: true
           name: "AE2 Tutorial - ${{ steps.set-tag.outputs.tag_name }}"
-          body: |
-            ## AE2 教程文档
-            
-            此 Release 包含自动生成的 PDF 文档。
-            
-            - **源文件**: `ae2.md`
-            - **生成时间**: $(date -u '+%Y-%m-%d %H:%M:%S UTC')
-            - **触发方式**: ${{ github.event_name }}
-            - **测试模式**: ${{ github.event.inputs.test_mode || 'false' }}
+          body: ${{ steps.release-body.outputs.body }}
         env:
           GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
       
@@ -236,4 +273,5 @@ jobs:
         run: |
           echo "✅ 上传完成"
           echo "Release 标签: ${{ steps.set-tag.outputs.tag_name }}"
+          echo "生成时间: ${{ steps.timestamp.outputs.current_time }}"
           echo "查看地址: https://github.com/${{ github.repository }}/releases/tag/${{ steps.set-tag.outputs.tag_name }}"
