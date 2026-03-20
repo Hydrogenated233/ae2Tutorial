@@ -1,34 +1,71 @@
-name: Build and Release PDF
+name: Markdown to PDF
 
 on:
-  release:
-    types: [published]
+  push:
+    branches: [ main, master ]
+    paths:
+      - '**.md'
+      - '**.markdown'
   workflow_dispatch:  # 允许手动触发
 
-permissions:
-  contents: write
-
 jobs:
-  build-and-upload:
+  convert-markdown-to-pdf:
     runs-on: ubuntu-latest
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Install Pandoc
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pandoc texlive-xetex texlive-fonts-recommended texlive-latex-extra
+      
+      - name: Install dependencies
+        run: |
+          npm install -g markdown-pdf
+          # 或者使用 md-to-pdf
+          npm install -g md-to-pdf
+      
+      - name: Create PDF directory
+        run: mkdir -p pdf_output
       
       - name: Convert Markdown to PDF
-        uses: baileyjm02/markdown-to-pdf@v1
-        with:
-          input_dir: .
-          output_dir: ./pdf_output
-          images_dir: ./images
-          image_import: ./images
-          build_html: false
+        run: |
+          # 查找所有markdown文件（排除node_modules等目录）
+          find . -name "*.md" -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/pdf_output/*" | while read file; do
+            echo "Converting: $file"
+            # 使用pandoc转换
+            pandoc "$file" \
+              -o "pdf_output/$(basename "${file%.md}.pdf")" \
+              --pdf-engine=xelatex \
+              -V CJKmainfont="Noto Sans CJK SC" \
+              -V mainfont="Noto Sans" \
+              -V geometry:margin=1in \
+              --highlight-style=tango
+          done
       
-      - name: Upload PDFs to Release
+      - name: List generated PDFs
+        run: ls -la pdf_output/
+      
+      - name: Create Release
+        id: create_release
         uses: softprops/action-gh-release@v1
         with:
-          files: ./pdf_output/*.pdf
-          fail_on_unmatched_files: true
+          tag_name: v${{ github.run_number }}
+          name: Release v${{ github.run_number }}
+          body: |
+            ## Markdown to PDF Conversion
+            - Generated on: ${{ github.event.head_commit.timestamp }}
+            - Commit: ${{ github.sha }}
+            - Total PDFs: $(ls pdf_output/ | wc -l)
+          files: pdf_output/*.pdf
+          draft: false
+          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
