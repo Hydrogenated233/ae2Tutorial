@@ -1,10 +1,12 @@
 name: 编译并发布 PDF 到 Release
+
 on:
-  workflow_dispatch:  # 手动触发
   release:
-    types: [published] # 或者发布时触发
-env:
-  GITHUB_TOKEN: ${{ github.token }}
+    types: [published]  # 当你在 GitHub 上发布 Release 时触发
+
+# 添加权限设置
+permissions:
+  contents: write
 
 jobs:
   publish-and-release:
@@ -12,7 +14,7 @@ jobs:
     steps:
       # 1. 检出你的代码仓库
       - name: Checkout 代码
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3  # 升级到 v3
 
       # 2. 将 Markdown 编译为 PDF
       - name: 编译 PDF 文档
@@ -22,17 +24,23 @@ jobs:
           # 指定你的 Markdown 文件路径，支持通配符
           sources: 'README.md docs/*.md'
 
-      # 3. 获取当前 Release 的信息
-      - name: 获取 Release 信息
-        id: get_release
-        uses: bruceadams/get-release@v1.2.0
+      # 3. 验证 PDF 是否生成
+      - name: 验证 PDF 文件
+        run: |
+          echo "生成的 PDF 路径: ${{ steps.publish-document.outputs.pdf }}"
+          if [ -f "${{ steps.publish-document.outputs.pdf }}" ]; then
+            echo "✅ PDF 文件存在"
+            ls -lh "${{ steps.publish-document.outputs.pdf }}"
+          else
+            echo "❌ PDF 文件不存在"
+            exit 1
+          fi
 
-      # 4. 将生成的 PDF 附加到 Release
+      # 4. 上传 PDF 到 Release（使用更简单的方式）
       - name: 上传 PDF 到 Release
-        uses: actions/upload-release-asset@v1
+        uses: softprops/action-gh-release@v1
         with:
-          upload_url: ${{ steps.get_release.outputs.upload_url }}
-          # 引用上一步编译出的 PDF 路径
-          asset_path: ${{ steps.publish-document.outputs.pdf }}
-          asset_name: 'document.pdf'
-          asset_content_type: application/pdf
+          files: ${{ steps.publish-document.outputs.pdf }}
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
