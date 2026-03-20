@@ -1,6 +1,8 @@
 name: 编译并发布 PDF 到 Release
 
 on:
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       test_mode:
@@ -35,7 +37,6 @@ jobs:
       - name: 生成时间戳
         id: timestamp
         run: |
-          # 生成当前时间戳
           CURRENT_TIME=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
           echo "current_time=$CURRENT_TIME" >> $GITHUB_OUTPUT
           echo "生成时间: $CURRENT_TIME"
@@ -53,12 +54,7 @@ jobs:
             fonts-wqy-zenhei \
             fontconfig
           
-          # 刷新字体缓存
           sudo fc-cache -fv
-          
-          # 验证中文字体是否安装成功
-          echo "已安装的中文字体："
-          fc-list :lang=zh | head -5
       
       # 测试模式：创建测试 PDF
       - name: 测试模式 - 创建测试 PDF
@@ -67,17 +63,7 @@ jobs:
           echo "🔧 测试模式：创建测试 PDF"
           echo "# 测试 PDF" > test.md
           echo "这是一个测试 PDF，生成于 ${{ steps.timestamp.outputs.current_time }}" >> test.md
-          echo "" >> test.md
-          echo "## 中文测试" >> test.md
-          echo "这是一段中文文本，测试字体是否正常显示。" >> test.md
-          
-          # 使用 xvfb-run 运行 wkhtmltopdf
-          xvfb-run wkhtmltopdf \
-            --enable-local-file-access \
-            --encoding utf-8 \
-            test.md \
-            test.pdf
-          
+          xvfb-run wkhtmltopdf --enable-local-file-access --encoding utf-8 test.md test.pdf
           ls -lh test.pdf
       
       # 正常模式：编译 ae2.md 为 PDF
@@ -86,21 +72,21 @@ jobs:
         run: |
           echo "📚 编译 ae2.md 为 PDF"
           
-          # 检查 ae2.md 是否存在
           if [ ! -f "ae2.md" ]; then
             echo "❌ 错误：ae2.md 文件不存在"
             exit 1
           fi
           
-          # 先转换为 HTML 再转 PDF，以便更好地控制字体
+          # 转换为 HTML
           echo "步骤1: 转换为 HTML..."
-          pandoc ae2.md -o output.html \
+          pandoc ae2.md -o content.html \
             --standalone \
             --metadata pagetitle="Applied Energistics 2 Tutorial" \
             --metadata charset=utf-8
           
-          # 创建带中文字体支持的 HTML 包装器，并注入生成时间
-          cat > pdf-wrapper.html << EOF
+          # 创建完整的 HTML 文件（直接包含内容，避免重复）
+          echo "步骤2: 创建最终 HTML..."
+          cat > final.html << EOF
           <!DOCTYPE html>
           <html>
           <head>
@@ -157,9 +143,7 @@ jobs:
             </style>
           </head>
           <body>
-            <div class="content">
-              $(cat output.html)
-            </div>
+            $(cat content.html | sed -n '/<body>/,/<\/body>/p' | sed '1d;$d')
             <div class="footer-note">
               <p>文档生成时间: ${{ steps.timestamp.outputs.current_time }}</p>
               <p>源文件: ae2.md | 自动生成于 GitHub Actions</p>
@@ -168,12 +152,8 @@ jobs:
           </html>
           EOF
           
-          # 将 HTML 内容插入到包装器中
-          sed -i '/<div class="content">/r output.html' pdf-wrapper.html
-          sed -i '/<div class="content">/d' pdf-wrapper.html
-          
-          # 使用 xvfb-run 运行 wkhtmltopdf，指定中文字体
-          echo "步骤2: 转换为 PDF..."
+          # 使用 xvfb-run 运行 wkhtmltopdf
+          echo "步骤3: 转换为 PDF..."
           xvfb-run wkhtmltopdf \
             --enable-local-file-access \
             --encoding utf-8 \
@@ -185,15 +165,13 @@ jobs:
             --footer-center "[page]" \
             --footer-font-size 10 \
             --disable-smart-shrinking \
-            pdf-wrapper.html \
+            final.html \
             ae2-documentation.pdf
           
           # 验证 PDF
           if [ -f "ae2-documentation.pdf" ]; then
             echo "✅ PDF 编译成功"
             ls -lh ae2-documentation.pdf
-            # 检查 PDF 信息
-            file ae2-documentation.pdf
           else
             echo "❌ PDF 编译失败"
             exit 1
@@ -205,22 +183,17 @@ jobs:
         run: |
           if [ "${{ github.event.inputs.test_mode }}" == "true" ]; then
             FILE_PATH="test.pdf"
-            FILE_NAME="test-document.pdf"
           else
             FILE_PATH="ae2-documentation.pdf"
-            FILE_NAME="ae2-documentation.pdf"
           fi
           
           echo "file_path=$FILE_PATH" >> $GITHUB_OUTPUT
-          echo "file_name=$FILE_NAME" >> $GITHUB_OUTPUT
           
           if [ -f "$FILE_PATH" ]; then
             echo "✅ 文件存在: $FILE_PATH"
             ls -lh "$FILE_PATH"
           else
             echo "❌ 文件不存在: $FILE_PATH"
-            echo "当前目录内容："
-            ls -la
             exit 1
           fi
       
@@ -231,7 +204,7 @@ jobs:
           TAG_NAME="${{ github.event.release.tag_name || github.event.inputs.tag_name }}"
           echo "tag_name=${TAG_NAME:-test}" >> $GITHUB_OUTPUT
       
-      # 生成 Release 说明（包含动态时间）
+      # 生成 Release 说明
       - name: 生成 Release 说明
         id: release-body
         run: |
@@ -249,7 +222,6 @@ jobs:
           该 PDF 由 GitHub Actions 自动编译生成，包含 AE2（Applied Energistics 2）的教程内容。
           EOF
           
-          # 将内容保存为变量
           BODY_CONTENT=$(cat release_body.md)
           echo "body<<EOF" >> $GITHUB_OUTPUT
           echo "$BODY_CONTENT" >> $GITHUB_OUTPUT
@@ -272,4 +244,3 @@ jobs:
           echo "✅ 上传完成"
           echo "Release 标签: ${{ steps.set-tag.outputs.tag_name }}"
           echo "生成时间: ${{ steps.timestamp.outputs.current_time }}"
-          echo "查看地址: https://github.com/${{ github.repository }}/releases/tag/${{ steps.set-tag.outputs.tag_name }}"
