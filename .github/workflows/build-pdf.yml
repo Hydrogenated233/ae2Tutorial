@@ -1,39 +1,34 @@
-name: 编译并发布 PDF 到 Release
+name: Build and Release PDF
 
 on:
   release:
-    types: [published]  # 当你在 GitHub 上发布 Release 时触发
+    types: [published]
+  workflow_dispatch:  # 允许手动触发
 
-env:
-  GITHUB_TOKEN: ${{ github.token }}
+permissions:
+  contents: write
 
 jobs:
-  publish-and-release:
+  build-and-upload:
     runs-on: ubuntu-latest
+    
     steps:
-      # 1. 检出你的代码仓库
-      - name: Checkout 代码
-        uses: actions/checkout@v2
-
-      # 2. 将 Markdown 编译为 PDF
-      - name: 编译 PDF 文档
-        uses: shrink/actions-document-publish@v1
-        id: publish-document
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Convert Markdown to PDF
+        uses: baileyjm02/markdown-to-pdf@v1
         with:
-          # 指定你的 Markdown 文件路径，支持通配符
-          sources: '*.md'
-
-      # 3. 获取当前 Release 的信息
-      - name: 获取 Release 信息
-        id: get_release
-        uses: bruceadams/get-release@v1.2.0
-
-      # 4. 将生成的 PDF 附加到 Release
-      - name: 上传 PDF 到 Release
-        uses: actions/upload-release-asset@v1
+          input_dir: .
+          output_dir: ./pdf_output
+          images_dir: ./images
+          image_import: ./images
+          build_html: false
+      
+      - name: Upload PDFs to Release
+        uses: softprops/action-gh-release@v1
         with:
-          upload_url: ${{ steps.get_release.outputs.upload_url }}
-          # 引用上一步编译出的 PDF 路径
-          asset_path: ${{ steps.publish-document.outputs.pdf }}
-          asset_name: 'document.pdf'
-          asset_content_type: application/pdf
+          files: ./pdf_output/*.pdf
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
