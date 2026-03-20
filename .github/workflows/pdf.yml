@@ -79,18 +79,21 @@ jobs:
             exit 1
           fi
           
-          # 转换为 HTML
-          echo "步骤1: 转换为 HTML..."
+          # 转换为 HTML，启用内部链接
+          echo "步骤1: 转换为 HTML（启用内部链接）..."
           pandoc ae2.md -o content.html \
             --standalone \
             --metadata pagetitle="Applied Energistics 2 Tutorial" \
-            --metadata charset=utf-8
+            --metadata charset=utf-8 \
+            --toc \
+            --toc-depth=3 \
+            --id-prefix=""
           
           # 提取 body 内容到单独文件
           echo "步骤2: 提取 body 内容..."
           sed -n '/<body>/,/<\/body>/p' content.html | sed '1d;$d' > body-content.html
           
-          # 创建完整的 HTML 文件（使用 EOF 不带引号以展开变量）
+          # 创建完整的 HTML 文件（包含内部链接支持）
           echo "步骤3: 创建最终 HTML..."
           cat > final.html << EOF
           <!DOCTYPE html>
@@ -115,13 +118,14 @@ jobs:
                 color: #333;
               }
               
-              /* 标题样式 */
+              /* 标题样式 - 为锚点添加偏移量 */
               h1, h2, h3, h4, h5, h6 {
                 font-family: "Noto Sans CJK SC", "WenQuanYi Micro Hei", "WenQuanYi Zen Hei", sans-serif;
                 margin-top: 1.5em;
                 margin-bottom: 0.5em;
                 font-weight: 600;
                 line-height: 1.25;
+                scroll-margin-top: 20px;
               }
               
               h1 { font-size: 2em; border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; }
@@ -129,7 +133,7 @@ jobs:
               h3 { font-size: 1.25em; }
               h4 { font-size: 1em; }
               
-              /* 段落样式 - 去除多余空隙 */
+              /* 段落样式 */
               p {
                 margin: 0 0 0.8em 0;
                 line-height: 1.6;
@@ -227,7 +231,7 @@ jobs:
                 border: 0;
               }
               
-              /* 链接样式 */
+              /* 链接样式 - 支持内部链接 */
               a {
                 color: #0366d6;
                 text-decoration: none;
@@ -235,6 +239,27 @@ jobs:
               
               a:hover {
                 text-decoration: underline;
+              }
+              
+              /* 目录样式 */
+              nav#TOC {
+                background-color: #f6f8fa;
+                padding: 1em;
+                border-radius: 6px;
+                margin: 1em 0;
+              }
+              
+              nav#TOC ul {
+                margin: 0;
+                padding-left: 1.5em;
+              }
+              
+              nav#TOC li {
+                margin: 0.2em 0;
+              }
+              
+              nav#TOC a {
+                color: #0366d6;
               }
               
               /* 脚注样式 */
@@ -269,14 +294,12 @@ jobs:
           </html>
           EOF
           
-          # 验证 HTML 文件内容
-          echo "步骤4: 验证 HTML 文件大小..."
+          # 验证 HTML 文件
+          echo "步骤4: 验证 HTML 文件..."
           ls -lh final.html
-          echo "HTML 文件前10行:"
-          head -10 final.html
           
-          # 使用 xvfb-run 运行 wkhtmltopdf
-          echo "步骤5: 转换为 PDF..."
+          # 使用 xvfb-run 运行 wkhtmltopdf，启用内部链接
+          echo "步骤5: 转换为 PDF（启用内部链接）..."
           xvfb-run wkhtmltopdf \
             --enable-local-file-access \
             --encoding utf-8 \
@@ -288,6 +311,8 @@ jobs:
             --footer-center "[page]" \
             --footer-font-size 10 \
             --disable-smart-shrinking \
+            --enable-internal-links \
+            --enable-external-links \
             final.html \
             ae2-documentation.pdf
           
@@ -340,9 +365,6 @@ jobs:
           - **生成时间**: ${{ steps.timestamp.outputs.current_time }}
           - **触发方式**: ${{ github.event_name }}
           - **测试模式**: ${{ github.event.inputs.test_mode || 'false' }}
-          
-          ### 文档说明
-          该 PDF 由 GitHub Actions 自动编译生成，包含 AE2（Applied Energistics 2）的教程内容。
           EOF
           
           BODY_CONTENT=$(cat release_body.md)
