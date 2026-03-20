@@ -63,6 +63,8 @@ jobs:
           echo "🔧 测试模式：创建测试 PDF"
           echo "# 测试 PDF" > test.md
           echo "这是一个测试 PDF，生成于 ${{ steps.timestamp.outputs.current_time }}" >> test.md
+          echo "" >> test.md
+          echo "> 这是一个引用块测试" >> test.md
           xvfb-run wkhtmltopdf --enable-local-file-access --encoding utf-8 test.md test.pdf
           ls -lh test.pdf
       
@@ -84,14 +86,21 @@ jobs:
             --metadata pagetitle="Applied Energistics 2 Tutorial" \
             --metadata charset=utf-8
           
-          # 创建完整的 HTML 文件（直接包含内容，避免重复）
+          # 创建完整的 HTML 文件（包含完整样式）
           echo "步骤2: 创建最终 HTML..."
-          cat > final.html << EOF
+          cat > final.html << 'EOF'
           <!DOCTYPE html>
           <html>
           <head>
             <meta charset="UTF-8">
             <style>
+              /* 基础样式 */
+              * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+              }
+              
               body {
                 font-family: "Noto Sans CJK SC", "WenQuanYi Micro Hei", "WenQuanYi Zen Hei", "Microsoft YaHei", "SimHei", "PingFang SC", "Hiragino Sans GB", sans-serif;
                 font-size: 14px;
@@ -99,39 +108,132 @@ jobs:
                 padding: 20px;
                 max-width: 900px;
                 margin: 0 auto;
+                color: #333;
               }
+              
+              /* 标题样式 */
               h1, h2, h3, h4, h5, h6 {
                 font-family: "Noto Sans CJK SC", "WenQuanYi Micro Hei", "WenQuanYi Zen Hei", sans-serif;
                 margin-top: 1.5em;
                 margin-bottom: 0.5em;
+                font-weight: 600;
+                line-height: 1.25;
               }
-              code, pre {
+              
+              h1 { font-size: 2em; border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; }
+              h2 { font-size: 1.5em; border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; }
+              h3 { font-size: 1.25em; }
+              h4 { font-size: 1em; }
+              
+              /* 段落样式 - 去除多余空隙 */
+              p {
+                margin: 0 0 0.8em 0;
+                line-height: 1.6;
+              }
+              
+              /* 引用块样式 */
+              blockquote {
+                margin: 1em 0;
+                padding: 0.5em 1em;
+                border-left: 4px solid #dfe2e5;
+                color: #6a737d;
+                background-color: #f6f8fa;
+                font-style: normal;
+              }
+              
+              blockquote p {
+                margin: 0.5em 0;
+              }
+              
+              blockquote > :first-child {
+                margin-top: 0;
+              }
+              
+              blockquote > :last-child {
+                margin-bottom: 0;
+              }
+              
+              /* 代码块样式 */
+              code {
                 font-family: "Courier New", "Noto Sans CJK SC", monospace;
                 background-color: #f6f8fa;
                 padding: 0.2em 0.4em;
                 border-radius: 3px;
+                font-size: 85%;
               }
+              
               pre {
+                background-color: #f6f8fa;
                 padding: 1em;
                 overflow-x: auto;
+                border-radius: 6px;
+                margin: 1em 0;
               }
+              
+              pre code {
+                background-color: transparent;
+                padding: 0;
+                font-size: 100%;
+              }
+              
+              /* 列表样式 */
+              ul, ol {
+                margin: 0.5em 0 0.8em 1.5em;
+                padding-left: 0;
+              }
+              
+              li {
+                margin: 0.2em 0;
+              }
+              
+              /* 图片样式 */
               img {
                 max-width: 100%;
                 height: auto;
+                display: block;
+                margin: 1em auto;
               }
+              
+              /* 表格样式 */
               table {
                 border-collapse: collapse;
                 width: 100%;
                 margin: 1em 0;
+                display: block;
+                overflow-x: auto;
               }
+              
               th, td {
-                border: 1px solid #ddd;
-                padding: 8px;
+                border: 1px solid #dfe2e5;
+                padding: 6px 13px;
                 text-align: left;
               }
+              
               th {
-                background-color: #f2f2f2;
+                background-color: #f6f8fa;
+                font-weight: 600;
               }
+              
+              /* 水平线 */
+              hr {
+                height: 0.25em;
+                padding: 0;
+                margin: 1.5em 0;
+                background-color: #e1e4e8;
+                border: 0;
+              }
+              
+              /* 链接样式 */
+              a {
+                color: #0366d6;
+                text-decoration: none;
+              }
+              
+              a:hover {
+                text-decoration: underline;
+              }
+              
+              /* 脚注样式 */
               .footer-note {
                 margin-top: 50px;
                 padding-top: 20px;
@@ -139,6 +241,15 @@ jobs:
                 font-size: 12px;
                 color: #666;
                 text-align: center;
+              }
+              
+              /* 移除多余的空白 */
+              .content > *:first-child {
+                margin-top: 0;
+              }
+              
+              .content > *:last-child {
+                margin-bottom: 0;
               }
             </style>
           </head>
