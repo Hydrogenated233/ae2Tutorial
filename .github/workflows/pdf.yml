@@ -1,25 +1,156 @@
 name: 编译并发布 PDF 到 Release
 
 on:
+  # 当发布 Release 时触发
   release:
     types: [published]
+  
+  # 手动触发（用于测试）
+  workflow_dispatch:
+    inputs:
+      test_mode:
+        description: '测试模式（创建测试 PDF）'
+        type: boolean
+        default: false
+        required: false
+      tag_name:
+        description: '指定 Release 标签名（如 v1.0.0）'
+        type: string
+        required: false
+        default: ''
+
+# 设置权限
+permissions:
+  contents: write
 
 jobs:
-  publish-and-release:
+  build-and-release:
     runs-on: ubuntu-latest
+    
     steps:
+      # 1. 检出代码
       - name: Checkout 代码
         uses: actions/checkout@v3
-
-      - name: 编译 PDF 文档
+      
+      # 2. 显示触发信息
+      - name: 显示触发信息
+        run: |
+          echo "触发方式: ${{ github.event_name }}"
+          echo "测试模式: ${{ github.event.inputs.test_mode }}"
+          echo "标签名: ${{ github.event.release.tag_name || github.event.inputs.tag_name }}"
+      
+      # 3. 测试模式：创建测试 PDF
+      - name: 测试模式 - 创建测试 PDF
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.test_mode == 'true'
+        run: |
+          echo "🔧 测试模式：创建测试 PDF"
+          cat > test.pdf << 'EOF'
+          %PDF-1.4
+          1 0 obj
+          << /Type /Catalog /Pages 2 0 R >>
+          endobj
+          2 0 obj
+          << /Type /Pages /Kids [3 0 R] /Count 1 >>
+          endobj
+          3 0 obj
+          << /Type /Page /Parent 2 0 R /Resources << /Font << /F1 4 0 R >> >> /MediaBox [0 0 612 792] /Contents 5 0 R >>
+          endobj
+          4 0 obj
+          << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+          endobj
+          5 0 obj
+          << /Length 44 >>
+          stream
+          BT /F1 24 Tf 100 700 Td (Test PDF) Tj ET
+          endstream
+          endobj
+          xref
+          0 6
+          0000000000 65535 f
+          0000000009 00000 n
+          0000000058 00000 n
+          0000000115 00000 n
+          0000000219 00000 n
+          0000000283 00000 n
+          trailer
+          << /Size 6 /Root 1 0 R >>
+          startxref
+          365
+          %%EOF
+          EOF
+          echo "✅ 测试 PDF 已创建"
+          ls -lh test.pdf
+      
+      # 4. 正常模式：编译真实的 Markdown 为 PDF
+      - name: 编译 PDF 文档（正常模式）
+        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.test_mode != 'true')
         uses: shrink/actions-document-publish@v1
         id: publish-document
         with:
           sources: 'README.md docs/*.md'
-
-      - name: 上传 PDF 到 Release
+      
+      # 5. 确定要上传的文件路径
+      - name: 确定上传文件路径
+        id: set-file-path
+        run: |
+          if [ "${{ github.event.inputs.test_mode }}" == "true" ]; then
+            echo "file_path=test.pdf" >> $GITHUB_OUTPUT
+            echo "file_name=test-document.pdf" >> $GITHUB_OUTPUT
+            echo "📄 使用测试文件: test.pdf"
+          else
+            echo "file_path=${{ steps.publish-document.outputs.pdf }}" >> $GITHUB_OUTPUT
+            echo "file_name=documentation.pdf" >> $GITHUB_OUTPUT
+            echo "📄 使用编译文件: ${{ steps.publish-document.outputs.pdf }}"
+          fi
+      
+      # 6. 验证文件存在
+      - name: 验证文件存在
+        run: |
+          FILE_PATH="${{ steps.set-file-path.outputs.file_path }}"
+          if [ -f "$FILE_PATH" ]; then
+            echo "✅ 文件存在: $FILE_PATH"
+            ls -lh "$FILE_PATH"
+            file "$FILE_PATH" 2>/dev/null || echo "文件类型检测跳过"
+          else
+            echo "❌ 文件不存在: $FILE_PATH"
+            echo "当前目录内容："
+            ls -la
+            exit 1
+          fi
+      
+      # 7. 上传到 Release（使用 PAT）
+      - name: 上传到 Release
         uses: softprops/action-gh-release@v1
         with:
-          files: ${{ steps.publish-document.outputs.pdf }}
+          files: ${{ steps.set-file-path.outputs.file_path }}
+          name: ${{ github.event.release.name }}
+          tag_name: ${{ github.event.release.tag_name || github.event.inputs.tag_name }}
+          # 如果是测试模式，不覆盖现有的 Release 资产
+          # 如果是正式 Release，覆盖同名文件
+          overwrite: true
         env:
           GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}  # 使用 PAT 而不是默认的 GITHUB_TOKEN
+      
+      # 8. 显示上传结果
+      - name: 显示上传完成
+        run: |
+          echo "✅ PDF 已成功上传到 Release"
+          echo "Release 标签: ${{ github.event.release.tag_name || github.event.inputs.tag_name }}"
+          echo "文件名称: ${{ steps.set-file-path.outputs.file_name }}"
+
+  # 可选：添加一个调试 Job，显示当前 Release 信息
+  debug-info:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - name: 显示调试信息
+        run: |
+          echo "=== 调试信息 ==="
+          echo "事件名称: ${{ github.event_name }}"
+          echo "仓库: ${{ github.repository }}"
+          echo "引用: ${{ github.ref }}"
+          echo "SHA: ${{ github.sha }}"
+          echo "触发者: ${{ github.actor }}"
+          echo "Release 标签: ${{ github.event.release.tag_name }}"
+          echo "手动输入标签: ${{ github.event.inputs.tag_name }}"
+          echo "测试模式: ${{ github.event.inputs.test_mode }}"
