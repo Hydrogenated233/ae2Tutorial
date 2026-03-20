@@ -86,9 +86,13 @@ jobs:
             --metadata pagetitle="Applied Energistics 2 Tutorial" \
             --metadata charset=utf-8
           
-          # 创建完整的 HTML 文件（包含完整样式）
-          echo "步骤2: 创建最终 HTML..."
-          cat > final.html << 'EOF'
+          # 提取 body 内容到单独文件
+          echo "步骤2: 提取 body 内容..."
+          sed -n '/<body>/,/<\/body>/p' content.html | sed '1d;$d' > body-content.html
+          
+          # 创建完整的 HTML 文件（使用 EOF 不带引号以展开变量）
+          echo "步骤3: 创建最终 HTML..."
+          cat > final.html << EOF
           <!DOCTYPE html>
           <html>
           <head>
@@ -254,7 +258,9 @@ jobs:
             </style>
           </head>
           <body>
-            $(cat content.html | sed -n '/<body>/,/<\/body>/p' | sed '1d;$d')
+            <div class="content">
+              $(cat body-content.html)
+            </div>
             <div class="footer-note">
               <p>文档生成时间: ${{ steps.timestamp.outputs.current_time }}</p>
               <p>源文件: ae2.md | 自动生成于 GitHub Actions</p>
@@ -263,8 +269,14 @@ jobs:
           </html>
           EOF
           
+          # 验证 HTML 文件内容
+          echo "步骤4: 验证 HTML 文件大小..."
+          ls -lh final.html
+          echo "HTML 文件前10行:"
+          head -10 final.html
+          
           # 使用 xvfb-run 运行 wkhtmltopdf
-          echo "步骤3: 转换为 PDF..."
+          echo "步骤5: 转换为 PDF..."
           xvfb-run wkhtmltopdf \
             --enable-local-file-access \
             --encoding utf-8 \
