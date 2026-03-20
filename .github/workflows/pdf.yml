@@ -1,11 +1,8 @@
 name: 编译并发布 PDF 到 Release
 
 on:
-  # 当发布 Release 时触发
   release:
     types: [published]
-  
-  # 手动触发（用于测试）
   workflow_dispatch:
     inputs:
       test_mode:
@@ -17,9 +14,8 @@ on:
         description: '指定 Release 标签名（如 v1.0.0）'
         type: string
         required: false
-        default: ''
+        default: 'test'
 
-# 设置权限
 permissions:
   contents: write
 
@@ -28,89 +24,115 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      # 1. 检出代码
       - name: Checkout 代码
         uses: actions/checkout@v3
       
-      # 2. 显示触发信息
       - name: 显示触发信息
         run: |
           echo "触发方式: ${{ github.event_name }}"
           echo "测试模式: ${{ github.event.inputs.test_mode }}"
           echo "标签名: ${{ github.event.release.tag_name || github.event.inputs.tag_name }}"
       
-      # 3. 测试模式：创建测试 PDF
+      # 调试：列出所有 Markdown 文件
+      - name: 列出所有 Markdown 文件
+        run: |
+          echo "=== 当前目录结构 ==="
+          ls -la
+          echo "=== 查找所有 .md 文件 ==="
+          find . -name "*.md" -type f
+          echo "=== ae2.md 内容（前10行） ==="
+          head -10 ae2.md 2>/dev/null || echo "❌ ae2.md 不存在"
+      
+      # 测试模式：创建测试 PDF
       - name: 测试模式 - 创建测试 PDF
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.test_mode == 'true'
         run: |
           echo "🔧 测试模式：创建测试 PDF"
-          cat > test.pdf << 'EOF'
-          %PDF-1.4
-          1 0 obj
-          << /Type /Catalog /Pages 2 0 R >>
-          endobj
-          2 0 obj
-          << /Type /Pages /Kids [3 0 R] /Count 1 >>
-          endobj
-          3 0 obj
-          << /Type /Page /Parent 2 0 R /Resources << /Font << /F1 4 0 R >> >> /MediaBox [0 0 612 792] /Contents 5 0 R >>
-          endobj
-          4 0 obj
-          << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
-          endobj
-          5 0 obj
-          << /Length 44 >>
-          stream
-          BT /F1 24 Tf 100 700 Td (Test PDF) Tj ET
-          endstream
-          endobj
-          xref
-          0 6
-          0000000000 65535 f
-          0000000009 00000 n
-          0000000058 00000 n
-          0000000115 00000 n
-          0000000219 00000 n
-          0000000283 00000 n
-          trailer
-          << /Size 6 /Root 1 0 R >>
-          startxref
-          365
-          %%EOF
-          EOF
+          # 安装 pandoc
+          sudo apt-get update
+          sudo apt-get install -y pandoc texlive-xetex
+          
+          # 创建测试 Markdown
+          echo "# Test PDF" > test.md
+          echo "This is a test PDF generated at $(date)" >> test.md
+          echo "" >> test.md
+          echo "## Repository: ${{ github.repository }}" >> test.md
+          
+          # 编译 PDF
+          pandoc test.md -o test.pdf --pdf-engine=xelatex
+          
           echo "✅ 测试 PDF 已创建"
           ls -lh test.pdf
+          file test.pdf
       
-      # 4. 正常模式：编译真实的 Markdown 为 PDF
-      - name: 编译 PDF 文档（正常模式）
+      # 正常模式：编译 ae2.md 为 PDF
+      - name: 编译 ae2.md 为 PDF
         if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.test_mode != 'true')
-        uses: shrink/actions-document-publish@v1
-        id: publish-document
-        with:
-          sources: 'README.md docs/*.md'
-      
-      # 5. 确定要上传的文件路径
-      - name: 确定上传文件路径
-        id: set-file-path
         run: |
-          if [ "${{ github.event.inputs.test_mode }}" == "true" ]; then
-            echo "file_path=test.pdf" >> $GITHUB_OUTPUT
-            echo "file_name=test-document.pdf" >> $GITHUB_OUTPUT
-            echo "📄 使用测试文件: test.pdf"
+          echo "📚 编译 ae2.md 为 PDF"
+          
+          # 检查 ae2.md 是否存在
+          if [ ! -f "ae2.md" ]; then
+            echo "❌ 错误：ae2.md 文件不存在于根目录"
+            echo "当前目录内容："
+            ls -la
+            exit 1
+          fi
+          
+          # 安装 pandoc 和 LaTeX
+          sudo apt-get update
+          sudo apt-get install -y pandoc texlive-xetex texlive-fonts-recommended texlive-latex-extra
+          
+          echo "输入文件: ae2.md"
+          echo "文件大小: $(wc -c < ae2.md) 字节"
+          echo "文件行数: $(wc -l < ae2.md) 行"
+          echo ""
+          echo "前20行内容:"
+          echo "----------------------------------------"
+          head -20 ae2.md
+          echo "----------------------------------------"
+          
+          # 编译 PDF
+          pandoc ae2.md -o ae2-documentation.pdf \
+            --pdf-engine=xelatex \
+            -V geometry:margin=1in \
+            -V mainfont="DejaVu Sans" \
+            -V monofont="DejaVu Sans Mono" \
+            -V fontsize=11pt \
+            -V documentclass=article
+          
+          # 验证 PDF 是否生成
+          if [ -f "ae2-documentation.pdf" ]; then
+            echo "✅ PDF 编译成功"
+            ls -lh ae2-documentation.pdf
+            file ae2-documentation.pdf
+            # 获取 PDF 页数（如果安装了 pdfinfo）
+            sudo apt-get install -y poppler-utils
+            pdfinfo ae2-documentation.pdf 2>/dev/null | grep Pages || echo "无法获取页数"
           else
-            echo "file_path=${{ steps.publish-document.outputs.pdf }}" >> $GITHUB_OUTPUT
-            echo "file_name=documentation.pdf" >> $GITHUB_OUTPUT
-            echo "📄 使用编译文件: ${{ steps.publish-document.outputs.pdf }}"
+            echo "❌ PDF 编译失败"
+            echo "检查 pandoc 错误信息"
+            exit 1
           fi
       
-      # 6. 验证文件存在
+      # 验证文件存在
       - name: 验证文件存在
+        id: verify-file
         run: |
-          FILE_PATH="${{ steps.set-file-path.outputs.file_path }}"
+          if [ "${{ github.event.inputs.test_mode }}" == "true" ]; then
+            FILE_PATH="test.pdf"
+            FILE_NAME="test-document.pdf"
+          else
+            FILE_PATH="ae2-documentation.pdf"
+            FILE_NAME="ae2-documentation.pdf"
+          fi
+          
+          echo "file_path=$FILE_PATH" >> $GITHUB_OUTPUT
+          echo "file_name=$FILE_NAME" >> $GITHUB_OUTPUT
+          
           if [ -f "$FILE_PATH" ]; then
             echo "✅ 文件存在: $FILE_PATH"
             ls -lh "$FILE_PATH"
-            file "$FILE_PATH" 2>/dev/null || echo "文件类型检测跳过"
           else
             echo "❌ 文件不存在: $FILE_PATH"
             echo "当前目录内容："
@@ -118,39 +140,43 @@ jobs:
             exit 1
           fi
       
-      # 7. 上传到 Release（使用 PAT）
+      # 获取标签名
+      - name: 设置标签名
+        id: set-tag
+        run: |
+          TAG_NAME="${{ github.event.release.tag_name || github.event.inputs.tag_name }}"
+          if [ -z "$TAG_NAME" ]; then
+            TAG_NAME="test"
+          fi
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+          echo "使用标签: $TAG_NAME"
+      
+      # 上传到 Release
       - name: 上传到 Release
         uses: softprops/action-gh-release@v1
         with:
-          files: ${{ steps.set-file-path.outputs.file_path }}
-          name: ${{ github.event.release.name }}
-          tag_name: ${{ github.event.release.tag_name || github.event.inputs.tag_name }}
-          # 如果是测试模式，不覆盖现有的 Release 资产
-          # 如果是正式 Release，覆盖同名文件
-          overwrite: true
+          files: ${{ steps.verify-file.outputs.file_path }}
+          tag_name: ${{ steps.set-tag.outputs.tag_name }}
+          make_latest: true
+          name: "AE2 Tutorial - ${{ steps.set-tag.outputs.tag_name }}"
+          body: |
+            ## AE2 教程文档
+            
+            此 Release 包含自动生成的 PDF 文档。
+            
+            - **源文件**: `ae2.md`
+            - **生成时间**: $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+            - **触发方式**: ${{ github.event_name }}
+            - **测试模式**: ${{ github.event.inputs.test_mode || 'false' }}
+            
+            ### 文档说明
+            该 PDF 由 GitHub Actions 自动编译生成，包含 AE2（Applied Energistics 2）的教程内容。
         env:
-          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}  # 使用 PAT 而不是默认的 GITHUB_TOKEN
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
       
-      # 8. 显示上传结果
       - name: 显示上传完成
         run: |
-          echo "✅ PDF 已成功上传到 Release"
-          echo "Release 标签: ${{ github.event.release.tag_name || github.event.inputs.tag_name }}"
-          echo "文件名称: ${{ steps.set-file-path.outputs.file_name }}"
-
-  # 可选：添加一个调试 Job，显示当前 Release 信息
-  debug-info:
-    runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch'
-    steps:
-      - name: 显示调试信息
-        run: |
-          echo "=== 调试信息 ==="
-          echo "事件名称: ${{ github.event_name }}"
-          echo "仓库: ${{ github.repository }}"
-          echo "引用: ${{ github.ref }}"
-          echo "SHA: ${{ github.sha }}"
-          echo "触发者: ${{ github.actor }}"
-          echo "Release 标签: ${{ github.event.release.tag_name }}"
-          echo "手动输入标签: ${{ github.event.inputs.tag_name }}"
-          echo "测试模式: ${{ github.event.inputs.test_mode }}"
+          echo "✅ 上传完成"
+          echo "Release 标签: ${{ steps.set-tag.outputs.tag_name }}"
+          echo "文件名称: ${{ steps.verify-file.outputs.file_name }}"
+          echo "查看地址: https://github.com/${{ github.repository }}/releases/tag/${{ steps.set-tag.outputs.tag_name }}"
