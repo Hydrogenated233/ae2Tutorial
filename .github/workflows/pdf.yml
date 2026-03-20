@@ -33,23 +33,207 @@ jobs:
           echo "测试模式: ${{ github.event.inputs.test_mode }}"
           echo "标签名: ${{ github.event.release.tag_name || github.event.inputs.tag_name }}"
       
+      # 安装依赖和中文字体
+      - name: 安装依赖和中文字体
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pandoc \
+            wkhtmltopdf \
+            xvfb \
+            fonts-noto-cjk \
+            fonts-wqy-microhei \
+            fonts-wqy-zenhei \
+            fontconfig
+          
+          # 刷新字体缓存
+          sudo fc-cache -fv
+          
+          # 验证中文字体是否安装成功
+          echo "已安装的中文字体："
+          fc-list :lang=zh | head -5
+      
       # 测试模式：创建测试 PDF
-      - name: 测试模式 - 创建测试文件
+      - name: 测试模式 - 创建测试 PDF
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.test_mode == 'true'
         run: |
-          echo "🔧 测试模式：创建测试 Markdown"
-          cat > test.md << 'EOF'
-# Test PDF
-
-This is a test PDF generated at $(date)
-
-## Features
-- Network image support
-- GitHub Actions integration
-- Auto upload to Releases
-
-![Test Image](https://via.placeholder.com/400x200.png?text=Test+Image)
-
-## Code Example
-```python
-print("Hello, World!")
+          echo "🔧 测试模式：创建测试 PDF"
+          echo "# 测试 PDF" > test.md
+          echo "这是一个测试 PDF，生成于 $(date)" >> test.md
+          echo "" >> test.md
+          echo "## 中文测试" >> test.md
+          echo "这是一段中文文本，测试字体是否正常显示。" >> test.md
+          
+          # 使用 xvfb-run 运行 wkhtmltopdf
+          xvfb-run wkhtmltopdf \
+            --enable-local-file-access \
+            --encoding utf-8 \
+            test.md \
+            test.pdf
+          
+          ls -lh test.pdf
+      
+      # 正常模式：编译 ae2.md 为 PDF
+      - name: 编译 ae2.md 为 PDF
+        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.test_mode != 'true')
+        run: |
+          echo "📚 编译 ae2.md 为 PDF"
+          
+          # 检查 ae2.md 是否存在
+          if [ ! -f "ae2.md" ]; then
+            echo "❌ 错误：ae2.md 文件不存在"
+            exit 1
+          fi
+          
+          # 先转换为 HTML 再转 PDF，以便更好地控制字体
+          echo "步骤1: 转换为 HTML..."
+          pandoc ae2.md -o output.html \
+            --standalone \
+            --metadata pagetitle="Applied Energistics 2 Tutorial" \
+            --metadata charset=utf-8
+          
+          # 创建带中文字体支持的 HTML 包装器
+          cat > pdf-wrapper.html << 'EOF'
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="UTF-8">
+            <style>
+              body {
+                font-family: "Noto Sans CJK SC", "WenQuanYi Micro Hei", "WenQuanYi Zen Hei", "Microsoft YaHei", "SimHei", "PingFang SC", "Hiragino Sans GB", sans-serif;
+                font-size: 14px;
+                line-height: 1.6;
+                padding: 20px;
+                max-width: 900px;
+                margin: 0 auto;
+              }
+              h1, h2, h3, h4, h5, h6 {
+                font-family: "Noto Sans CJK SC", "WenQuanYi Micro Hei", "WenQuanYi Zen Hei", sans-serif;
+                margin-top: 1.5em;
+                margin-bottom: 0.5em;
+              }
+              code, pre {
+                font-family: "Courier New", "Noto Sans CJK SC", monospace;
+                background-color: #f6f8fa;
+                padding: 0.2em 0.4em;
+                border-radius: 3px;
+              }
+              pre {
+                padding: 1em;
+                overflow-x: auto;
+              }
+              img {
+                max-width: 100%;
+                height: auto;
+              }
+              table {
+                border-collapse: collapse;
+                width: 100%;
+                margin: 1em 0;
+              }
+              th, td {
+                border: 1px solid #ddd;
+                padding: 8px;
+                text-align: left;
+              }
+              th {
+                background-color: #f2f2f2;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="content">
+              $(cat output.html)
+            </div>
+          </body>
+          </html>
+          EOF
+          
+          # 将 HTML 内容插入到包装器中
+          sed -i '/<div class="content">/r output.html' pdf-wrapper.html
+          sed -i '/<div class="content">/d' pdf-wrapper.html
+          
+          # 使用 xvfb-run 运行 wkhtmltopdf，指定中文字体
+          echo "步骤2: 转换为 PDF..."
+          xvfb-run wkhtmltopdf \
+            --enable-local-file-access \
+            --encoding utf-8 \
+            --page-size A4 \
+            --margin-top 20mm \
+            --margin-bottom 20mm \
+            --margin-left 20mm \
+            --margin-right 20mm \
+            --footer-center "[page]" \
+            --footer-font-size 10 \
+            --disable-smart-shrinking \
+            pdf-wrapper.html \
+            ae2-documentation.pdf
+          
+          # 验证 PDF
+          if [ -f "ae2-documentation.pdf" ]; then
+            echo "✅ PDF 编译成功"
+            ls -lh ae2-documentation.pdf
+            # 检查 PDF 信息
+            file ae2-documentation.pdf
+          else
+            echo "❌ PDF 编译失败"
+            exit 1
+          fi
+      
+      # 验证文件存在
+      - name: 验证文件存在
+        id: verify-file
+        run: |
+          if [ "${{ github.event.inputs.test_mode }}" == "true" ]; then
+            FILE_PATH="test.pdf"
+            FILE_NAME="test-document.pdf"
+          else
+            FILE_PATH="ae2-documentation.pdf"
+            FILE_NAME="ae2-documentation.pdf"
+          fi
+          
+          echo "file_path=$FILE_PATH" >> $GITHUB_OUTPUT
+          echo "file_name=$FILE_NAME" >> $GITHUB_OUTPUT
+          
+          if [ -f "$FILE_PATH" ]; then
+            echo "✅ 文件存在: $FILE_PATH"
+            ls -lh "$FILE_PATH"
+          else
+            echo "❌ 文件不存在: $FILE_PATH"
+            echo "当前目录内容："
+            ls -la
+            exit 1
+          fi
+      
+      # 获取标签名
+      - name: 设置标签名
+        id: set-tag
+        run: |
+          TAG_NAME="${{ github.event.release.tag_name || github.event.inputs.tag_name }}"
+          echo "tag_name=${TAG_NAME:-test}" >> $GITHUB_OUTPUT
+      
+      # 上传到 Release
+      - name: 上传到 Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ${{ steps.verify-file.outputs.file_path }}
+          tag_name: ${{ steps.set-tag.outputs.tag_name }}
+          make_latest: true
+          name: "AE2 Tutorial - ${{ steps.set-tag.outputs.tag_name }}"
+          body: |
+            ## AE2 教程文档
+            
+            此 Release 包含自动生成的 PDF 文档。
+            
+            - **源文件**: `ae2.md`
+            - **生成时间**: $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+            - **触发方式**: ${{ github.event_name }}
+            - **测试模式**: ${{ github.event.inputs.test_mode || 'false' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+      
+      - name: 显示上传完成
+        run: |
+          echo "✅ 上传完成"
+          echo "Release 标签: ${{ steps.set-tag.outputs.tag_name }}"
+          echo "查看地址: https://github.com/${{ github.repository }}/releases/tag/${{ steps.set-tag.outputs.tag_name }}"
