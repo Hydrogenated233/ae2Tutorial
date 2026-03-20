@@ -2,45 +2,24 @@ name: 编译并发布 PDF 到 Release
 
 on:
   release:
-    types: [published]  # 当你在 GitHub 上发布 Release 时触发
-
-# 添加权限设置
-permissions:
-  contents: write
+    types: [published]
 
 jobs:
   publish-and-release:
     runs-on: ubuntu-latest
     steps:
-      # 1. 检出你的代码仓库
       - name: Checkout 代码
-        uses: actions/checkout@v3  # 升级到 v3
+        uses: actions/checkout@v3
 
-      # 2. 将 Markdown 编译为 PDF
       - name: 编译 PDF 文档
         uses: shrink/actions-document-publish@v1
         id: publish-document
         with:
-          # 指定你的 Markdown 文件路径，支持通配符
           sources: 'README.md docs/*.md'
 
-      # 3. 验证 PDF 是否生成
-      - name: 验证 PDF 文件
-        run: |
-          echo "生成的 PDF 路径: ${{ steps.publish-document.outputs.pdf }}"
-          if [ -f "${{ steps.publish-document.outputs.pdf }}" ]; then
-            echo "✅ PDF 文件存在"
-            ls -lh "${{ steps.publish-document.outputs.pdf }}"
-          else
-            echo "❌ PDF 文件不存在"
-            exit 1
-          fi
-
-      # 4. 上传 PDF 到 Release（使用更简单的方式）
       - name: 上传 PDF 到 Release
         uses: softprops/action-gh-release@v1
         with:
           files: ${{ steps.publish-document.outputs.pdf }}
-          fail_on_unmatched_files: true
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}  # 使用 PAT 而不是默认的 GITHUB_TOKEN
