@@ -33,37 +33,24 @@ jobs:
           echo "测试模式: ${{ github.event.inputs.test_mode }}"
           echo "标签名: ${{ github.event.release.tag_name || github.event.inputs.tag_name }}"
       
-      # 调试：列出所有 Markdown 文件
-      - name: 列出所有 Markdown 文件
+      # 安装依赖
+      - name: 安装依赖
         run: |
-          echo "=== 当前目录结构 ==="
-          ls -la
-          echo "=== 查找所有 .md 文件 ==="
-          find . -name "*.md" -type f
-          echo "=== ae2.md 内容（前10行） ==="
-          head -10 ae2.md 2>/dev/null || echo "❌ ae2.md 不存在"
+          sudo apt-get update
+          sudo apt-get install -y \
+            pandoc \
+            wkhtmltopdf \
+            xvfb
       
       # 测试模式：创建测试 PDF
       - name: 测试模式 - 创建测试 PDF
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.test_mode == 'true'
         run: |
           echo "🔧 测试模式：创建测试 PDF"
-          # 安装 pandoc
-          sudo apt-get update
-          sudo apt-get install -y pandoc texlive-xetex
-          
-          # 创建测试 Markdown
           echo "# Test PDF" > test.md
           echo "This is a test PDF generated at $(date)" >> test.md
-          echo "" >> test.md
-          echo "## Repository: ${{ github.repository }}" >> test.md
-          
-          # 编译 PDF
-          pandoc test.md -o test.pdf --pdf-engine=xelatex
-          
-          echo "✅ 测试 PDF 已创建"
+          pandoc test.md -o test.pdf --pdf-engine=wkhtmltopdf
           ls -lh test.pdf
-          file test.pdf
       
       # 正常模式：编译 ae2.md 为 PDF
       - name: 编译 ae2.md 为 PDF
@@ -73,45 +60,26 @@ jobs:
           
           # 检查 ae2.md 是否存在
           if [ ! -f "ae2.md" ]; then
-            echo "❌ 错误：ae2.md 文件不存在于根目录"
-            echo "当前目录内容："
-            ls -la
+            echo "❌ 错误：ae2.md 文件不存在"
             exit 1
           fi
           
-          # 安装 pandoc 和 LaTeX
-          sudo apt-get update
-          sudo apt-get install -y pandoc texlive-xetex texlive-fonts-recommended texlive-latex-extra
-          
-          echo "输入文件: ae2.md"
-          echo "文件大小: $(wc -c < ae2.md) 字节"
-          echo "文件行数: $(wc -l < ae2.md) 行"
-          echo ""
-          echo "前20行内容:"
-          echo "----------------------------------------"
-          head -20 ae2.md
-          echo "----------------------------------------"
-          
-          # 编译 PDF
+          # 使用 wkhtmltopdf 引擎编译（支持网络图片）
           pandoc ae2.md -o ae2-documentation.pdf \
-            --pdf-engine=xelatex \
-            -V geometry:margin=1in \
-            -V mainfont="DejaVu Sans" \
-            -V monofont="DejaVu Sans Mono" \
-            -V fontsize=11pt \
-            -V documentclass=article
+            --pdf-engine=wkhtmltopdf \
+            --metadata pagetitle="Applied Energistics 2 Tutorial" \
+            -V margin-top=20mm \
+            -V margin-bottom=20mm \
+            -V margin-left=20mm \
+            -V margin-right=20mm
           
-          # 验证 PDF 是否生成
+          # 验证 PDF
           if [ -f "ae2-documentation.pdf" ]; then
             echo "✅ PDF 编译成功"
             ls -lh ae2-documentation.pdf
-            file ae2-documentation.pdf
-            # 获取 PDF 页数（如果安装了 pdfinfo）
-            sudo apt-get install -y poppler-utils
             pdfinfo ae2-documentation.pdf 2>/dev/null | grep Pages || echo "无法获取页数"
           else
             echo "❌ PDF 编译失败"
-            echo "检查 pandoc 错误信息"
             exit 1
           fi
       
@@ -135,8 +103,6 @@ jobs:
             ls -lh "$FILE_PATH"
           else
             echo "❌ 文件不存在: $FILE_PATH"
-            echo "当前目录内容："
-            ls -la
             exit 1
           fi
       
@@ -145,11 +111,7 @@ jobs:
         id: set-tag
         run: |
           TAG_NAME="${{ github.event.release.tag_name || github.event.inputs.tag_name }}"
-          if [ -z "$TAG_NAME" ]; then
-            TAG_NAME="test"
-          fi
-          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
-          echo "使用标签: $TAG_NAME"
+          echo "tag_name=${TAG_NAME:-test}" >> $GITHUB_OUTPUT
       
       # 上传到 Release
       - name: 上传到 Release
@@ -167,10 +129,6 @@ jobs:
             - **源文件**: `ae2.md`
             - **生成时间**: $(date -u '+%Y-%m-%d %H:%M:%S UTC')
             - **触发方式**: ${{ github.event_name }}
-            - **测试模式**: ${{ github.event.inputs.test_mode || 'false' }}
-            
-            ### 文档说明
-            该 PDF 由 GitHub Actions 自动编译生成，包含 AE2（Applied Energistics 2）的教程内容。
         env:
           GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
       
@@ -178,5 +136,4 @@ jobs:
         run: |
           echo "✅ 上传完成"
           echo "Release 标签: ${{ steps.set-tag.outputs.tag_name }}"
-          echo "文件名称: ${{ steps.verify-file.outputs.file_name }}"
           echo "查看地址: https://github.com/${{ github.repository }}/releases/tag/${{ steps.set-tag.outputs.tag_name }}"
