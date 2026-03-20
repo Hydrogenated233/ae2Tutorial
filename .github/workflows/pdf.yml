@@ -27,75 +27,138 @@ jobs:
       - name: Checkout 代码
         uses: actions/checkout@v3
       
-      # 安装 Node.js
-      - name: 安装 Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '18'
+      - name: 显示触发信息
+        run: |
+          echo "触发方式: ${{ github.event_name }}"
+          echo "测试模式: ${{ github.event.inputs.test_mode }}"
+          echo "标签名: ${{ github.event.release.tag_name || github.event.inputs.tag_name }}"
       
-      # 安装 md-to-pdf
-      - name: 安装 md-to-pdf
-        run: npm install -g md-to-pdf
+      # 安装依赖
+      - name: 安装依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pandoc \
+            python3-pip \
+            python3-cffi \
+            python3-brotli \
+            libpango-1.0-0 \
+            libpangoft2-1.0-0 \
+            libffi-dev \
+            libcairo2 \
+            libgdk-pixbuf2.0-0
+          
+          # 安装 weasyprint
+          pip3 install weasyprint
       
-      # 编译 ae2.md 为 PDF
+      # 测试模式：创建测试 PDF
+      - name: 测试模式 - 创建测试 PDF
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.test_mode == 'true'
+        run: |
+          echo "🔧 测试模式：创建测试 PDF"
+          echo "# Test PDF" > test.md
+          echo "This is a test PDF generated at $(date)" >> test.md
+          pandoc test.md -o test.html
+          weasyprint test.html test.pdf
+          ls -lh test.pdf
+      
+      # 正常模式：编译 ae2.md 为 PDF
       - name: 编译 ae2.md 为 PDF
         if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.test_mode != 'true')
         run: |
           echo "📚 编译 ae2.md 为 PDF"
           
-          # 使用 md-to-pdf 编译（原生支持网络图片）
-          md-to-pdf ae2.md --config-file ./pdf-config.js || {
-            # 如果没有配置文件，直接运行
-            md-to-pdf ae2.md
-          }
+          # 检查 ae2.md 是否存在
+          if [ ! -f "ae2.md" ]; then
+            echo "❌ 错误：ae2.md 文件不存在"
+            exit 1
+          fi
           
-          # 重命名输出文件
-          mv ae2.pdf ae2-documentation.pdf 2>/dev/null || true
+          # 第一步：Markdown 转 HTML
+          echo "步骤1: 转换 Markdown 为 HTML..."
+          pandoc ae2.md -o output.html \
+            --self-contained \
+            --metadata title="AE2 Tutorial" \
+            --standalone \
+            --template=template.html \
+            -c https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.5.0/github-markdown.min.css
           
-          # 验证
+          # 如果没有自定义模板，使用默认
+          if [ ! -f "output.html" ]; then
+            pandoc ae2.md -o output.html \
+              --self-contained \
+              --metadata title="AE2 Tutorial"
+          fi
+          
+          echo "步骤2: 转换 HTML 为 PDF..."
+          # 使用 weasyprint 转换
+          weasyprint \
+            --presentational-hints \
+            output.html \
+            ae2-documentation.pdf
+          
+          # 验证 PDF
           if [ -f "ae2-documentation.pdf" ]; then
             echo "✅ PDF 编译成功"
             ls -lh ae2-documentation.pdf
+            # 获取 PDF 信息
+            pdfinfo ae2-documentation.pdf 2>/dev/null | grep Pages || echo "PDF 页数未知"
           else
             echo "❌ PDF 编译失败"
             exit 1
           fi
       
-      # 测试模式
-      - name: 测试模式 - 创建测试 PDF
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.test_mode == 'true'
-        run: |
-          echo "# Test PDF" > test.md
-          md-to-pdf test.md
-          mv test.pdf test-document.pdf
-          ls -lh test-document.pdf
-      
-      # 验证文件
+      # 验证文件存在
       - name: 验证文件存在
         id: verify-file
         run: |
           if [ "${{ github.event.inputs.test_mode }}" == "true" ]; then
-            FILE_PATH="test-document.pdf"
+            FILE_PATH="test.pdf"
+            FILE_NAME="test-document.pdf"
           else
             FILE_PATH="ae2-documentation.pdf"
+            FILE_NAME="ae2-documentation.pdf"
           fi
           
           echo "file_path=$FILE_PATH" >> $GITHUB_OUTPUT
+          echo "file_name=$FILE_NAME" >> $GITHUB_OUTPUT
           
           if [ -f "$FILE_PATH" ]; then
             echo "✅ 文件存在: $FILE_PATH"
             ls -lh "$FILE_PATH"
           else
             echo "❌ 文件不存在: $FILE_PATH"
+            echo "当前目录内容："
+            ls -la
             exit 1
           fi
+      
+      # 获取标签名
+      - name: 设置标签名
+        id: set-tag
+        run: |
+          TAG_NAME="${{ github.event.release.tag_name || github.event.inputs.tag_name }}"
+          echo "tag_name=${TAG_NAME:-test}" >> $GITHUB_OUTPUT
       
       # 上传到 Release
       - name: 上传到 Release
         uses: softprops/action-gh-release@v1
         with:
           files: ${{ steps.verify-file.outputs.file_path }}
-          tag_name: ${{ github.event.release.tag_name || github.event.inputs.tag_name }}
+          tag_name: ${{ steps.set-tag.outputs.tag_name }}
           make_latest: true
+          name: "AE2 Tutorial - ${{ steps.set-tag.outputs.tag_name }}"
+          body: |
+            ## AE2 教程文档
+            
+            此 Release 包含自动生成的 PDF 文档。
+            
+            - **源文件**: `ae2.md`
         env:
           GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+      
+      - name: 显示上传完成
+        run: |
+          echo "✅ 上传完成"
+          echo "Release 标签: ${{ steps.set-tag.outputs.tag_name }}"
+          echo "查看地址: https://github.com/${{ github.repository }}/releases/tag/${{ steps.set-tag.outputs.tag_name }}"
