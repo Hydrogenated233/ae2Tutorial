@@ -119,18 +119,16 @@ jobs:
             exit 1
           fi
 
-          # 1. 安装依赖（mistune、Pillow 用于图片处理）
-          pip3 install mistune
+          # 1. 安装依赖（指定 mistune 2.x 版本）
+          pip3 install mistune==2.0.4
 
-          # 2. 安装 WebP 转换工具（如果需要转换 WebP）
+          # 2. 安装 WebP 转换工具
           sudo apt-get install -y webp imagemagick
 
           # 3. 修复 Markdown 中的反斜杠路径
           sed -i 's/\\/\//g' ae2.md
 
-          # 4. 提取图片（将 Markdown 中的图片链接转换为本地路径）
-          #    这里先不做转换，直接使用 Pandoc 的 --extract-media 或者自己处理。
-          #    简单起见，仍用 Pandoc 提取媒体文件（不生成 LaTeX）
+          # 4. 提取图片（使用 Pandoc 提取媒体文件）
           pandoc ae2.md --extract-media=./media
 
           # 5. 将所有 WebP 图片转换为 PNG
