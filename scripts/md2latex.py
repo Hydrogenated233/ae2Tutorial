@@ -4,9 +4,8 @@
 import sys
 import re
 import mistune
-from mistune.renderers import BaseRenderer as Renderer  # 修复导入
+from mistune.renderers import BaseRenderer as Renderer
 
-# 强制输出 UTF-8
 import codecs
 sys.stdout = codecs.getwriter('utf8')(sys.stdout.detach())
 sys.stdin = codecs.getreader('utf8')(sys.stdin.detach())
@@ -16,20 +15,20 @@ class LaTeXRenderer(Renderer):
         super().__init__(**kwargs)
         self.replace = True
 
-    # 代码块
+    def finalize(self, data):
+        return data
+
     def block_code(self, code, lang=None):
         code = code.rstrip('\n')
         if lang and code:
             code = self.escape(code)
             return '\\begin{lstlisting}[language=%s]\n%s\n\\end{lstlisting}\n\n' % (lang, code)
         if lang:
-            # 处理带文件名的格式，如 `python[filename.py]`
             lang, _, filename = lang[:-1].partition('[')
             return '\\lstinputlisting[language=%s, caption={%s}]{%s}\n\n' % (lang, self.escape(filename), filename)
         code = self.escape(code)
         return '\\begin{lstlisting}\n%s\n\\end{lstlisting}\n\n' % code
 
-    # 引用块（自定义带背景色的盒子）
     def block_quote(self, text):
         return r'''\begin{tcolorbox}[
     colback=gray!5,
@@ -51,7 +50,6 @@ class LaTeXRenderer(Renderer):
 
 ''' % text.rstrip('\n')
 
-    # 标题
     def header(self, text, level, raw=None):
         levels = ['', 'section', 'subsection', 'subsubsection', 'paragraph', 'subparagraph']
         if level <= len(levels)-1:
@@ -60,11 +58,9 @@ class LaTeXRenderer(Renderer):
             cmd = 'subparagraph'
         return '\\%s{%s}\n\n' % (cmd, text)
 
-    # 水平线
     def hrule(self):
         return '\\hrule\n\n'
 
-    # 列表
     def list(self, body, ordered=True):
         cmd = 'enumerate' if ordered else 'itemize'
         return '\\begin{%s}\n%s\\end{%s}\n\n' % (cmd, body, cmd)
@@ -72,11 +68,9 @@ class LaTeXRenderer(Renderer):
     def list_item(self, text):
         return '\\item %s\n' % text
 
-    # 段落
     def paragraph(self, text):
         return '%s\n\n' % text.strip(' ')
 
-    # 表格（暂不支持，可根据需要扩展）
     def table(self, header, body):
         raise NotImplementedError
 
@@ -86,31 +80,24 @@ class LaTeXRenderer(Renderer):
     def table_cell(self, content, **flags):
         raise NotImplementedError
 
-    # 加粗 + 斜体
     def double_emphasis(self, text):
         return '\\textbf{\\emph{%s}}' % text
 
-    # 斜体
     def emphasis(self, text):
         return '\\emph{%s}' % text
 
-    # 行内代码
     def codespan(self, text):
         return '\\texttt{%s} ' % self.escape(text.rstrip())
 
-    # 换行
     def linebreak(self):
         return '\\newline\n'
 
-    # 删除线
     def strikethrough(self, text):
         return '\\sout{%s}' % text
 
-    # 普通文本（转义特殊字符）
     def text(self, text):
         return self.escape(text)
 
-    # 转义 LaTeX 特殊字符（除数学模式外）
     def escape(self, text):
         if not text:
             return ''
@@ -146,15 +133,12 @@ class LaTeXRenderer(Renderer):
                 newtext += c
         return newtext
 
-    # 自动链接
     def autolink(self, link, is_email=False):
         return self.escape(link)
 
-    # 链接
     def link(self, link, title, text):
         return '\\href{%s}{%s}' % (self.escape(link), self.escape(text))
 
-    # 图片（可选带标题）
     def image(self, src, title, text):
         if text:
             return '\\ref{%s}%%\n' \
@@ -172,7 +156,6 @@ class LaTeXRenderer(Renderer):
                '\\end{figure}\n\n' \
                % (src, self.escape(title))
 
-    # 脚注（可选，暂不实现）
     def footnote_ref(self, key, index):
         raise NotImplementedError
 
@@ -186,12 +169,11 @@ class LaTeXRenderer(Renderer):
 def main():
     text = sys.stdin.read()
 
-    # 尝试提取 front matter（简单支持 YAML 格式）
     front_matter = {}
     if text.startswith('---\n'):
         parts = text.split('\n---\n', 1)
         if len(parts) == 2:
-            front_text = parts[0][4:]  # 去掉开头的 "---\n"
+            front_text = parts[0][4:]
             rest = parts[1]
             for line in front_text.split('\n'):
                 if ':' in line:
@@ -206,7 +188,6 @@ def main():
     parser = mistune.Markdown(renderer=renderer)
     body = parser(text)
 
-    # 输出完整的 LaTeX 文档
     print(r'''\documentclass[12pt,a4paper]{article}
 
 \usepackage{ctex}
@@ -214,7 +195,7 @@ def main():
 \usepackage[colorlinks,linkcolor=black,anchorcolor=black,citecolor=black,unicode]{hyperref}
 \usepackage{float}
 \usepackage{listings}
-\usepackage[normalem]{ulem}   % 提供 \sout 删除线
+\usepackage[normalem]{ulem}
 \usepackage{xcolor}
 \usepackage{tcolorbox}
 \tcbuselibrary{skins,breakable}
