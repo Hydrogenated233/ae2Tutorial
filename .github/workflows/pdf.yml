@@ -87,24 +87,45 @@ jobs:
           ls -lh test.pdf
 
       # LaTeX 编译模式：使用 XeLaTeX 直接生成 PDF
+      # LaTeX 编译模式：使用 XeLaTeX 直接生成 PDF（支持 WebP 转换）
       - name: LaTeX 编译模式 - 生成 PDF
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.latex_mode == 'true'
         run: |
-          echo "📚 LaTeX 模式：编译 ae2.md 为 PDF (XeLaTeX)"
+          echo "📚 LaTeX 模式：编译 ae2.md 为 PDF (XeLaTeX + WebP 转换)"
+
           if [ ! -f "ae2.md" ]; then
             echo "❌ 错误：ae2.md 文件不存在"
             exit 1
           fi
-          # 使用 pandoc 调用 xelatex，生成带测试标记的 PDF
-          pandoc ae2.md \
-            -o ae2-documentation-LaTeX-test.pdf \
+
+          # 1. 安装 WebP 转换工具
+          sudo apt-get install -y webp imagemagick
+
+          # 2. 修复 Markdown 中的反斜杠路径（将 \ 替换为 /）
+          sed -i 's/\\/\//g' ae2.md
+
+          # 3. 生成 LaTeX 中间文件，并提取媒体文件
+          pandoc ae2.md -o ae2.tex \
             --pdf-engine=xelatex \
-            -V mainfont="Noto Sans CJK SC" \
-            -V monofont="Noto Sans Mono CJK SC" \
-            -V geometry:margin=2.5cm \
-            --toc \
-            --toc-depth=2
-          if [ -f "ae2-documentation-LaTeX-test.pdf" ]; then
+            --extract-media=./media
+
+          # 4. 将所有 WebP 转换为 PNG
+          find ./media -name "*.webp" | while read file; do
+            echo "转换 $file"
+            dwebp "$file" -o "${file%.webp}.png"
+            rm "$file"
+          done
+
+          # 5. 修改 LaTeX 文件中的图片扩展名 .webp -> .png
+          sed -i 's/\.webp/.png/g' ae2.tex
+
+          # 6. 编译 PDF（可能需要两次以处理交叉引用）
+          xelatex -interaction=nonstopmode ae2.tex
+          xelatex -interaction=nonstopmode ae2.tex
+
+          # 7. 重命名最终 PDF
+          if [ -f "ae2.pdf" ]; then
+            mv ae2.pdf ae2-documentation-LaTeX-test.pdf
             echo "✅ LaTeX PDF 编译成功"
             ls -lh ae2-documentation-LaTeX-test.pdf
           else
