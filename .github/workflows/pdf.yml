@@ -1,7 +1,9 @@
 name: 编译并发布 PDF 到 Release
 
 on:
-  push:                      # 新增：每次 commit 触发
+  push:
+    branches:        # 只监听特定分支的提交
+      - main
   workflow_dispatch:
     inputs:
       test_mode:
@@ -20,6 +22,7 @@ permissions:
 
 jobs:
   build-and-release:
+    if: github.event_name != 'push' || github.ref_type != 'tag'
     runs-on: ubuntu-latest
 
     steps:
