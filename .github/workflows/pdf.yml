@@ -105,7 +105,6 @@ jobs:
           ls -lh test.pdf
 
       # LaTeX 编译模式：使用 XeLaTeX 直接生成 PDF（支持 WebP 转换）
-      # LaTeX 编译模式：使用 XeLaTeX 直接生成 PDF（支持 WebP 转换）
       - name: LaTeX 编译模式 - 生成 PDF
         if: >
           github.event_name == 'workflow_dispatch' &&
@@ -119,7 +118,7 @@ jobs:
             exit 1
           fi
 
-          # 1. 安装 WebP 转换工具（如果尚未安装）
+          # 1. 安装 WebP 转换工具
           sudo apt-get install -y webp imagemagick
 
           # 2. 修复 Markdown 中的反斜杠路径
@@ -145,16 +144,14 @@ jobs:
           # 5. 修改 LaTeX 文件中的图片扩展名 .webp -> .png
           sed -i 's/\.webp/.png/g' ae2.tex
 
-          # 6. 修复 \hypertarget{ux...} 为正常中文标签（Python 解码）
+          # 6. 修复 \hypertarget{ux...} 为正常中文标签
           python3 -c "
           import re
 
           def decode_ux(m):
               s = m.group(1)
-              # 提取所有 uxXXXX 片段并解码
               parts = re.findall(r'ux([0-9a-f]{4})', s)
               decoded = ''.join(chr(int(p, 16)) for p in parts)
-              # 如果解码后为空，保留原样（防止空标签）
               if not decoded:
                   return m.group(0)
               return f'\\\\hypertarget{{{decoded}}}{{'
@@ -166,19 +163,44 @@ jobs:
               f.write(content)
           "
 
-              # 7. 编译 PDF（两次以确保目录和交叉引用正确，忽略非致命错误）
-              xelatex -interaction=nonstopmode ae2.tex || true
-              xelatex -interaction=nonstopmode ae2.tex || true
+          # 7. 调整标题级别：\subsection -> \section, \subsubsection -> \subsection
+          sed -i 's/\\subsection{/\\section{/g' ae2.tex
+          sed -i 's/\\subsubsection{/\\subsection{/g' ae2.tex
 
-              # 8. 重命名最终 PDF
-              if [ -f "ae2.pdf" ]; then
-                mv ae2.pdf ae2-documentation-LaTeX-test.pdf
-                echo "✅ LaTeX PDF 编译成功"
-                ls -lh ae2-documentation-LaTeX-test.pdf
-              else
-                echo "❌ LaTeX PDF 编译失败"
-                exit 1
-              fi
+          # 8. 确保删除线功能（添加 soul 包，并将 \st 改为 \sout 或保留）
+          # 检查是否已加载 soul，如果没有则在导言区添加
+          if ! grep -q "\\\\usepackage{soul}" ae2.tex; then
+            sed -i '/^\\\\documentclass/a \\\\usepackage{soul}' ae2.tex
+          fi
+
+          # 9. 为引用块添加自定义样式（灰色背景、左边框）
+          # 在导言区添加 quote 环境的重新定义
+          cat >> ae2.tex << 'EOF'
+          \usepackage{xcolor}
+          \definecolor{quote-bg}{rgb}{0.98,0.98,0.98}
+          \definecolor{quote-border}{rgb}{0.85,0.85,0.85}
+          \renewenvironment{quote}
+            {\par\addvspace{1em}\begin{list}{}{\leftmargin=1.5em\rightmargin=1.5em}\item\relax
+            \colorbox{quote-bg}{\begin{minipage}{\linewidth-2\fboxsep}\itshape}}
+            {\end{minipage}\end{list}\par\addvspace{1em}}
+          EOF
+
+          # 可选：调整换行符（将 \\ 替换为 \newline，但可能影响表格等，谨慎）
+          # 我们可以不做全局替换，因为 \\ 在 LaTeX 中通常有效。如果用户报告换行无效，再考虑。
+
+          # 10. 编译 PDF（两次以确保目录和交叉引用正确，忽略非致命错误）
+          xelatex -interaction=nonstopmode ae2.tex || true
+          xelatex -interaction=nonstopmode ae2.tex || true
+
+          # 11. 重命名最终 PDF
+          if [ -f "ae2.pdf" ]; then
+            mv ae2.pdf ae2-documentation-LaTeX-test.pdf
+            echo "✅ LaTeX PDF 编译成功"
+            ls -lh ae2-documentation-LaTeX-test.pdf
+          else
+            echo "❌ LaTeX PDF 编译失败"
+            exit 1
+          fi
 
       # 正常模式：使用 wkhtmltopdf 编译
       - name: 编译 ae2.md 为 PDF (wkhtmltopdf)
