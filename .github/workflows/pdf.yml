@@ -1,6 +1,7 @@
 name: 编译并发布 PDF 到 Release
 
 on:
+  push:                      # 新增：每次 commit 触发
   release:
     types: [published]
   workflow_dispatch:
@@ -22,25 +23,25 @@ permissions:
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout 代码
         uses: actions/checkout@v3
-      
+
       - name: 显示触发信息
         run: |
           echo "触发方式: ${{ github.event_name }}"
           echo "测试模式: ${{ github.event.inputs.test_mode }}"
           echo "标签名: ${{ github.event.release.tag_name || github.event.inputs.tag_name }}"
-      
-      # 生成时间戳
+
+      # 生成时间戳（东八区）
       - name: 生成时间戳
         id: timestamp
         run: |
-          CURRENT_TIME=$(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S UTC+8')
+          CURRENT_TIME=$(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S CST')
           echo "current_time=$CURRENT_TIME" >> $GITHUB_OUTPUT
           echo "生成时间: $CURRENT_TIME"
-      
+
       # 安装依赖和中文字体
       - name: 安装依赖和中文字体
         run: |
@@ -53,9 +54,8 @@ jobs:
             fonts-wqy-microhei \
             fonts-wqy-zenhei \
             fontconfig
-          
           sudo fc-cache -fv
-      
+
       # 测试模式：创建测试 PDF
       - name: 测试模式 - 创建测试 PDF
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.test_mode == 'true'
@@ -67,30 +67,33 @@ jobs:
           echo "> 这是一个引用块测试" >> test.md
           xvfb-run wkhtmltopdf --enable-local-file-access --encoding utf-8 test.md test.pdf
           ls -lh test.pdf
-      
-      # 正常模式：编译 ae2.md 为 PDF
+
+      # 正常模式：编译 ae2.md 为 PDF（release、手动非测试、push 均执行）
       - name: 编译 ae2.md 为 PDF
-        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.test_mode != 'true')
+        if: >
+          github.event_name == 'release' ||
+          (github.event_name == 'workflow_dispatch' && github.event.inputs.test_mode != 'true') ||
+          github.event_name == 'push'
         run: |
           echo "📚 编译 ae2.md 为 PDF"
-          
+
           if [ ! -f "ae2.md" ]; then
             echo "❌ 错误：ae2.md 文件不存在"
             exit 1
           fi
-          
+
           # 转换为 HTML
           echo "步骤1: 转换为 HTML..."
           pandoc ae2.md -o content.html \
             --standalone \
             --metadata pagetitle="Applied Energistics 2 Tutorial" \
             --metadata charset=utf-8
-          
-          # 提取 body 内容到单独文件
+
+          # 提取 body 内容
           echo "步骤2: 提取 body 内容..."
           sed -n '/<body>/,/<\/body>/p' content.html | sed '1d;$d' > body-content.html
-          
-          # 创建完整的 HTML 文件（使用 EOF 不带引号以展开变量）
+
+          # 创建最终 HTML
           echo "步骤3: 创建最终 HTML..."
           cat > final.html << EOF
           <!DOCTYPE html>
@@ -104,7 +107,6 @@ jobs:
                 padding: 0;
                 box-sizing: border-box;
               }
-              
               body {
                 font-family: "Noto Sans CJK SC", "WenQuanYi Micro Hei", "WenQuanYi Zen Hei", "Microsoft YaHei", "SimHei", "PingFang SC", "Hiragino Sans GB", sans-serif;
                 font-size: 14px;
@@ -114,8 +116,6 @@ jobs:
                 margin: 0 auto;
                 color: #333;
               }
-              
-              /* 标题样式 */
               h1, h2, h3, h4, h5, h6 {
                 font-family: "Noto Sans CJK SC", "WenQuanYi Micro Hei", "WenQuanYi Zen Hei", sans-serif;
                 margin-top: 1.5em;
@@ -123,19 +123,14 @@ jobs:
                 font-weight: 600;
                 line-height: 1.25;
               }
-              
               h1 { font-size: 2em; border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; }
               h2 { font-size: 1.5em; border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; }
               h3 { font-size: 1.25em; }
               h4 { font-size: 1em; }
-              
-              /* 段落样式 - 去除多余空隙 */
               p {
                 margin: 0 0 0.8em 0;
                 line-height: 1.6;
               }
-              
-              /* 引用块样式 */
               blockquote {
                 margin: 1em 0;
                 padding: 0.5em 1em;
@@ -144,20 +139,9 @@ jobs:
                 background-color: #f6f8fa;
                 font-style: normal;
               }
-              
               blockquote p {
                 margin: 0.5em 0;
               }
-              
-              blockquote > :first-child {
-                margin-top: 0;
-              }
-              
-              blockquote > :last-child {
-                margin-bottom: 0;
-              }
-              
-              /* 代码块样式 */
               code {
                 font-family: "Courier New", "Noto Sans CJK SC", monospace;
                 background-color: #f6f8fa;
@@ -165,7 +149,6 @@ jobs:
                 border-radius: 3px;
                 font-size: 85%;
               }
-              
               pre {
                 background-color: #f6f8fa;
                 padding: 1em;
@@ -173,32 +156,16 @@ jobs:
                 border-radius: 6px;
                 margin: 1em 0;
               }
-              
-              pre code {
-                background-color: transparent;
-                padding: 0;
-                font-size: 100%;
-              }
-              
-              /* 列表样式 */
               ul, ol {
                 margin: 0.5em 0 0.8em 1.5em;
                 padding-left: 0;
               }
-              
-              li {
-                margin: 0.2em 0;
-              }
-              
-              /* 图片样式 */
               img {
                 max-width: 100%;
                 height: auto;
                 display: block;
                 margin: 1em auto;
               }
-              
-              /* 表格样式 */
               table {
                 border-collapse: collapse;
                 width: 100%;
@@ -206,19 +173,15 @@ jobs:
                 display: block;
                 overflow-x: auto;
               }
-              
               th, td {
                 border: 1px solid #dfe2e5;
                 padding: 6px 13px;
                 text-align: left;
               }
-              
               th {
                 background-color: #f6f8fa;
                 font-weight: 600;
               }
-              
-              /* 水平线 */
               hr {
                 height: 0.25em;
                 padding: 0;
@@ -226,18 +189,10 @@ jobs:
                 background-color: #e1e4e8;
                 border: 0;
               }
-              
-              /* 链接样式 */
               a {
                 color: #0366d6;
                 text-decoration: none;
               }
-              
-              a:hover {
-                text-decoration: underline;
-              }
-              
-              /* 脚注样式 */
               .footer-note {
                 margin-top: 50px;
                 padding-top: 20px;
@@ -246,12 +201,9 @@ jobs:
                 color: #666;
                 text-align: center;
               }
-              
-              /* 移除多余的空白 */
               .content > *:first-child {
                 margin-top: 0;
               }
-              
               .content > *:last-child {
                 margin-bottom: 0;
               }
@@ -268,14 +220,12 @@ jobs:
           </body>
           </html>
           EOF
-          
-          # 验证 HTML 文件内容
+
+          # 验证 HTML
           echo "步骤4: 验证 HTML 文件大小..."
           ls -lh final.html
-          echo "HTML 文件前10行:"
-          head -10 final.html
-          
-          # 使用 xvfb-run 运行 wkhtmltopdf
+
+          # 转换为 PDF
           echo "步骤5: 转换为 PDF..."
           xvfb-run wkhtmltopdf \
             --enable-local-file-access \
@@ -290,8 +240,7 @@ jobs:
             --disable-smart-shrinking \
             final.html \
             ae2-documentation.pdf
-          
-          # 验证 PDF
+
           if [ -f "ae2-documentation.pdf" ]; then
             echo "✅ PDF 编译成功"
             ls -lh ae2-documentation.pdf
@@ -299,7 +248,7 @@ jobs:
             echo "❌ PDF 编译失败"
             exit 1
           fi
-      
+
       # 验证文件存在
       - name: 验证文件存在
         id: verify-file
@@ -309,9 +258,7 @@ jobs:
           else
             FILE_PATH="ae2-documentation.pdf"
           fi
-          
           echo "file_path=$FILE_PATH" >> $GITHUB_OUTPUT
-          
           if [ -f "$FILE_PATH" ]; then
             echo "✅ 文件存在: $FILE_PATH"
             ls -lh "$FILE_PATH"
@@ -319,47 +266,82 @@ jobs:
             echo "❌ 文件不存在: $FILE_PATH"
             exit 1
           fi
-      
-      # 获取标签名
+
+      # 设置标签名和 Release 名称（动态生成）
       - name: 设置标签名
         id: set-tag
         run: |
-          TAG_NAME="${{ github.event.release.tag_name || github.event.inputs.tag_name }}"
-          echo "tag_name=${TAG_NAME:-test}" >> $GITHUB_OUTPUT
-      
-      # 生成 Release 说明
+          if [ "${{ github.event_name }}" == "push" ]; then
+            # 生成 nightly 标签：nightly-YYYY-MM-DD-HHMM
+            TAG="nightly-$(TZ='Asia/Shanghai' date '+%Y-%m-%d-%H%M')"
+            NAME="Nightly Build $(TZ='Asia/Shanghai' date '+%y-%m-%d %H:%M')"
+            echo "tag_name=${TAG}" >> $GITHUB_OUTPUT
+            echo "release_name=${NAME}" >> $GITHUB_OUTPUT
+            echo "prerelease=true" >> $GITHUB_OUTPUT
+          else
+            # release 或手动触发
+            TAG="${{ github.event.release.tag_name || github.event.inputs.tag_name }}"
+            echo "tag_name=${TAG:-test}" >> $GITHUB_OUTPUT
+            echo "release_name=AE2 Tutorial - ${TAG:-test}" >> $GITHUB_OUTPUT
+            # 只有手动触发且未指定 release 时可能不是预发布，但为了安全统一设为 false（由 release 事件决定）
+            if [ "${{ github.event_name }}" == "release" ]; then
+              # release 事件时，预发布标志由 GitHub Release 本身决定，这里不设置，action 会沿用
+              echo "prerelease=false" >> $GITHUB_OUTPUT
+            else
+              # workflow_dispatch 默认不是预发布
+              echo "prerelease=false" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      # 生成 Release 说明（动态填充触发方式、测试模式）
       - name: 生成 Release 说明
         id: release-body
         run: |
+          # 根据事件类型生成描述
+          if [ "${{ github.event_name }}" == "push" ]; then
+            TRIGGER="push (commit: ${{ github.sha }})"
+            TEST_MODE="false"
+          elif [ "${{ github.event_name }}" == "release" ]; then
+            TRIGGER="release published"
+            TEST_MODE="false"
+          else
+            TRIGGER="manual workflow_dispatch"
+            TEST_MODE="${{ github.event.inputs.test_mode || 'false' }}"
+          fi
+
           cat > release_body.md << EOF
           ## AE2 教程文档
-          
+
           此 Release 包含自动生成的 PDF 文档。
-          
+
           - **源文件**: \`ae2.md\`
           - **生成时间**: ${{ steps.timestamp.outputs.current_time }}
-          - **触发方式**: ${{ github.event_name }}
-          - **测试模式**: ${{ github.event.inputs.test_mode || 'false' }}
-          
+          - **触发方式**: ${TRIGGER}
+          - **测试模式**: ${TEST_MODE}
+          EOF
+
           BODY_CONTENT=$(cat release_body.md)
           echo "body<<EOF" >> $GITHUB_OUTPUT
           echo "$BODY_CONTENT" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
-      
-      # 上传到 Release
+
+      # 上传到 Release（支持预发布）
       - name: 上传到 Release
         uses: softprops/action-gh-release@v1
         with:
           files: ${{ steps.verify-file.outputs.file_path }}
           tag_name: ${{ steps.set-tag.outputs.tag_name }}
+          name: ${{ steps.set-tag.outputs.release_name }}
           make_latest: true
-          name: "AE2 Tutorial - ${{ steps.set-tag.outputs.tag_name }}"
+          prerelease: ${{ steps.set-tag.outputs.prerelease }}
           body: ${{ steps.release-body.outputs.body }}
         env:
           GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
-      
+
       - name: 显示上传完成
         run: |
           echo "✅ 上传完成"
           echo "Release 标签: ${{ steps.set-tag.outputs.tag_name }}"
+          echo "Release 名称: ${{ steps.set-tag.outputs.release_name }}"
+          echo "是否预发布: ${{ steps.set-tag.outputs.prerelease }}"
           echo "生成时间: ${{ steps.timestamp.outputs.current_time }}"
