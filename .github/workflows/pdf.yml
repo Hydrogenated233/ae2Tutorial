@@ -15,10 +15,6 @@ on:
         type: string
         required: false
         default: 'test'
-      latex_mode:
-        description: 'LaTeX 编译模式（实验性，使用 XeLaTeX）'
-        type: boolean
-        default: false
 
 permissions:
   contents: write
@@ -38,7 +34,6 @@ jobs:
         run: |
           echo "触发方式: ${{ github.event_name }}"
           echo "测试模式: ${{ github.event.inputs.test_mode }}"
-          echo "LaTeX 模式: ${{ github.event.inputs.latex_mode }}"
           echo "标签名: ${{ github.event.release.tag_name || github.event.inputs.tag_name }}"
 
       # 新增：检查 commit message 是否包含跳过标记
@@ -76,24 +71,11 @@ jobs:
             fontconfig
           sudo fc-cache -fv
 
-      # LaTeX 编译模式：额外安装 TeX Live（同样增加跳过条件）
-      - name: 安装 TeX Live（仅 LaTeX 模式）
-        if: >
-          (github.event_name == 'workflow_dispatch' && github.event.inputs.latex_mode == 'true') &&
-          (github.event_name != 'push' || steps.check-skip.outputs.skip_build != 'true')
-        run: |
-          sudo apt-get install -y \
-            texlive-xetex \
-            texlive-fonts-recommended \
-            texlive-latex-extra \
-            texlive-lang-chinese
-
       # 测试模式：创建测试 PDF
       - name: 测试模式 - 创建测试 PDF
         if: >
           github.event_name == 'workflow_dispatch' &&
           github.event.inputs.test_mode == 'true' &&
-          github.event.inputs.latex_mode != 'true' &&
           (github.event_name != 'push' || steps.check-skip.outputs.skip_build != 'true')
         run: |
           echo "🔧 测试模式：创建测试 PDF"
@@ -104,67 +86,12 @@ jobs:
           xvfb-run wkhtmltopdf --enable-local-file-access --encoding utf-8 test.md test.pdf
           ls -lh test.pdf
 
-      # LaTeX 编译模式：使用 XeLaTeX 直接生成 PDF（支持 WebP 转换 + 样式修复）
-      # LaTeX 编译模式：使用自定义 mistune 渲染器
-      - name: LaTeX 编译模式 - 生成 PDF
-        if: >
-          github.event_name == 'workflow_dispatch' &&
-          github.event.inputs.latex_mode == 'true' &&
-          (github.event_name != 'push' || steps.check-skip.outputs.skip_build != 'true')
-        run: |
-          echo "📚 LaTeX 模式：编译 ae2.md 为 PDF (自定义渲染器)"
-
-          if [ ! -f "ae2.md" ]; then
-            echo "❌ 错误：ae2.md 文件不存在"
-            exit 1
-          fi
-
-          # 1. 安装依赖（指定 mistune 2.x 版本）
-          pip3 install mistune==2.0.4
-
-          # 2. 安装 WebP 转换工具
-          sudo apt-get install -y webp imagemagick
-
-          # 3. 修复 Markdown 中的反斜杠路径
-          sed -i 's/\\/\//g' ae2.md
-
-          # 4. 提取图片（使用 Pandoc 提取媒体文件）
-          pandoc ae2.md --extract-media=./media
-
-          # 5. 将所有 WebP 图片转换为 PNG
-          find ./media -name "*.webp" | while read file; do
-            echo "转换 $file"
-            dwebp "$file" -o "${file%.webp}.png"
-            rm "$file"
-          done
-
-          # 6. 修改 Markdown 中的图片路径（将 .webp 改为 .png）
-          sed -i 's/\.webp/.png/g' ae2.md
-
-          # 7. 使用自定义脚本将 Markdown 转为 LaTeX
-          cat ae2.md | python3 scripts/md2latex.py > ae2.tex
-
-          # 8. 编译 PDF（两次）
-          xelatex -interaction=nonstopmode ae2.tex
-          xelatex -interaction=nonstopmode ae2.tex
-
-          # 9. 重命名最终 PDF
-          if [ -f "ae2.pdf" ]; then
-            mv ae2.pdf ae2-documentation-LaTeX-test.pdf
-            echo "✅ LaTeX PDF 编译成功"
-            ls -lh ae2-documentation-LaTeX-test.pdf
-          else
-            echo "❌ LaTeX PDF 编译失败"
-            exit 1
-          fi
-
       # 正常模式：使用 wkhtmltopdf 编译
       - name: 编译 ae2.md 为 PDF (wkhtmltopdf)
         if: >
           (github.event_name == 'release' ||
            (github.event_name == 'workflow_dispatch' &&
-            github.event.inputs.test_mode != 'true' &&
-            github.event.inputs.latex_mode != 'true') ||
+            github.event.inputs.test_mode != 'true') ||
            github.event_name == 'push') &&
           (github.event_name != 'push' || steps.check-skip.outputs.skip_build != 'true')
         run: |
@@ -290,9 +217,7 @@ jobs:
         id: verify-file
         if: github.event_name != 'push' || steps.check-skip.outputs.skip_build != 'true'
         run: |
-          if [ "${{ github.event.inputs.latex_mode }}" == "true" ]; then
-            FILE_PATH="ae2-documentation-LaTeX-test.pdf"
-          elif [ "${{ github.event.inputs.test_mode }}" == "true" ]; then
+          if [ "${{ github.event.inputs.test_mode }}" == "true" ]; then
             FILE_PATH="test.pdf"
           else
             FILE_PATH="ae2-documentation.pdf"
@@ -336,15 +261,12 @@ jobs:
           if [ "${{ github.event_name }}" == "push" ]; then
             TRIGGER="push (commit: ${{ github.sha }})"
             TEST_MODE="false"
-            LATEX_MODE="false"
           elif [ "${{ github.event_name }}" == "release" ]; then
             TRIGGER="release published"
             TEST_MODE="false"
-            LATEX_MODE="false"
           else
             TRIGGER="manual workflow_dispatch"
             TEST_MODE="${{ github.event.inputs.test_mode || 'false' }}"
-            LATEX_MODE="${{ github.event.inputs.latex_mode || 'false' }}"
           fi
 
           cat > release_body.md << EOF
@@ -354,7 +276,6 @@ jobs:
           - **生成时间**: ${{ steps.timestamp.outputs.current_time }}
           - **触发方式**: ${TRIGGER}
           - **测试模式**: ${TEST_MODE}
-          - **LaTeX 模式**: ${LATEX_MODE}
           EOF
 
           BODY_CONTENT=$(cat release_body.md)
