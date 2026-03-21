@@ -105,99 +105,33 @@ jobs:
           ls -lh test.pdf
 
       # LaTeX 编译模式：使用 XeLaTeX 直接生成 PDF（支持 WebP 转换 + 样式修复）
+      # LaTeX 编译模式：使用自定义 mistune 渲染器
       - name: LaTeX 编译模式 - 生成 PDF
         if: >
           github.event_name == 'workflow_dispatch' &&
           github.event.inputs.latex_mode == 'true' &&
           (github.event_name != 'push' || steps.check-skip.outputs.skip_build != 'true')
         run: |
-          echo "📚 LaTeX 模式：编译 ae2.md 为 PDF (XeLaTeX + WebP 转换)"
+          echo "📚 LaTeX 模式：编译 ae2.md 为 PDF (自定义渲染器)"
 
           if [ ! -f "ae2.md" ]; then
             echo "❌ 错误：ae2.md 文件不存在"
             exit 1
           fi
 
-          # 1. 安装 WebP 转换工具（如果尚未安装）
+          # 1. 安装依赖（mistune、Pillow 用于图片处理）
+          pip3 install mistune
+
+          # 2. 安装 WebP 转换工具（如果需要转换 WebP）
           sudo apt-get install -y webp imagemagick
 
-          # 2. 修复 Markdown 中的反斜杠路径
+          # 3. 修复 Markdown 中的反斜杠路径
           sed -i 's/\\/\//g' ae2.md
 
-          # 3. 创建自定义 LaTeX 头部文件（包含样式定义）
-          cat > header.tex << 'EOF'
-          % 修复删除线（使用 ulem 包，支持中文）
-          \usepackage[normalem]{ulem}
-          \renewcommand{\ULdepth}{0.5ex}
-          \newcommand{\st}[1]{\sout{#1}}
-
-          % 引用块样式（仿 GitHub 风格）
-          \usepackage{xcolor}
-          \usepackage{tcolorbox}
-          \tcbuselibrary{skins,breakable}
-          \newtcolorbox{quote}{%
-            colback=gray!5,
-            colframe=gray!30,
-            boxrule=0.5pt,
-            left=12pt,
-            right=12pt,
-            top=6pt,
-            bottom=6pt,
-            arc=0pt,
-            outer arc=0pt,
-            boxsep=0pt,
-            before skip=10pt,
-            after skip=10pt,
-            breakable
-          }
-
-          % 定义 blockquote 环境（Pandoc 默认可能使用 blockquote）
-          \newenvironment{blockquote}{\begin{quote}}{\end{quote}}
-
-          % 行内代码样式
-          \usepackage{xcolor}
-          \definecolor{codebg}{RGB}{246,248,250}
-          \definecolor{codefg}{RGB}{31,35,40}
-          \let\oldtexttt\texttt
-          \renewcommand{\texttt}[1]{%
-            \colorbox{codebg}{\oldtexttt{\color{codefg}#1}}%
-          }
-
-          % 代码块样式（用 listings 包美化）
-          \usepackage{listings}
-          \lstset{
-            basicstyle=\ttfamily\small,
-            backgroundcolor=\color{codebg},
-            breaklines=true,
-            frame=single,
-            framerule=0pt,
-            rulecolor=\color{gray!30},
-            aboveskip=10pt,
-            belowskip=10pt,
-            xleftmargin=10pt,
-            xrightmargin=10pt
-          }
-
-          % 修复换行：允许长行自动换行
-          \usepackage{parskip}
-          \setlength{\parskip}{0.5em}
-          \setlength{\emergencystretch}{3em}
-          \pretolerance=1000
-          \tolerance=2000
-          \setlength{\hfuzz}{1pt}
-          EOF
-
-          # 4. 生成完整的 LaTeX 文档，并注入头部样式
-          pandoc ae2.md -o ae2.tex \
-            --pdf-engine=xelatex \
-            --extract-media=./media \
-            --standalone \
-            --include-in-header=header.tex \
-            -V mainfont="Noto Sans CJK SC" \
-            -V sansfont="Noto Sans CJK SC" \
-            -V monofont="Noto Sans Mono CJK SC" \
-            -V CJKmainfont="Noto Sans CJK SC" \
-            -V geometry:margin=2.5cm
+          # 4. 提取图片（将 Markdown 中的图片链接转换为本地路径）
+          #    这里先不做转换，直接使用 Pandoc 的 --extract-media 或者自己处理。
+          #    简单起见，仍用 Pandoc 提取媒体文件（不生成 LaTeX）
+          pandoc ae2.md --extract-media=./media
 
           # 5. 将所有 WebP 图片转换为 PNG
           find ./media -name "*.webp" | while read file; do
@@ -206,37 +140,17 @@ jobs:
             rm "$file"
           done
 
-          # 6. 修改 LaTeX 文件中的图片扩展名 .webp -> .png
-          sed -i 's/\.webp/.png/g' ae2.tex
+          # 6. 修改 Markdown 中的图片路径（将 .webp 改为 .png）
+          sed -i 's/\.webp/.png/g' ae2.md
 
-          # 7. 修复 \hypertarget{ux...} 为正常中文标签
-          python3 -c "
-          import re
+          # 7. 使用自定义脚本将 Markdown 转为 LaTeX
+          cat ae2.md | python3 scripts/md2latex.py > ae2.tex
 
-          def decode_ux(m):
-              s = m.group(1)
-              parts = re.findall(r'ux([0-9a-f]{4})', s)
-              decoded = ''.join(chr(int(p, 16)) for p in parts)
-              if not decoded:
-                  return m.group(0)
-              return f'\\\\hypertarget{{{decoded}}}{{'
-
-          with open('ae2.tex', 'r', encoding='utf-8') as f:
-              content = f.read()
-          content = re.sub(r'\\\\hypertarget\{((?:ux[0-9a-f]{4})+)\}', decode_ux, content)
-          with open('ae2.tex', 'w', encoding='utf-8') as f:
-              f.write(content)
-          "
-
-          # 8. 提升标题层级：将 \subsection 替换为 \section，\subsubsection 替换为 \subsection
-          sed -i 's/\\subsection{/\\section{/g' ae2.tex
-          sed -i 's/\\subsubsection{/\\subsection{/g' ae2.tex
-
-          # 9. 编译 PDF（两次以确保目录和交叉引用正确）
+          # 8. 编译 PDF（两次）
           xelatex -interaction=nonstopmode ae2.tex
           xelatex -interaction=nonstopmode ae2.tex
 
-          # 10. 重命名最终 PDF
+          # 9. 重命名最终 PDF
           if [ -f "ae2.pdf" ]; then
             mv ae2.pdf ae2-documentation-LaTeX-test.pdf
             echo "✅ LaTeX PDF 编译成功"
