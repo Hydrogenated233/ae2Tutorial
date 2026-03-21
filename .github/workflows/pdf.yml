@@ -104,7 +104,7 @@ jobs:
           xvfb-run wkhtmltopdf --enable-local-file-access --encoding utf-8 test.md test.pdf
           ls -lh test.pdf
 
-      # LaTeX 编译模式：使用 XeLaTeX 直接生成 PDF
+      # LaTeX 编译模式：使用 XeLaTeX 直接生成 PDF（支持 WebP 转换）
       - name: LaTeX 编译模式 - 生成 PDF
         if: >
           github.event_name == 'workflow_dispatch' &&
@@ -112,21 +112,57 @@ jobs:
           (github.event_name != 'push' || steps.check-skip.outputs.skip_build != 'true')
         run: |
           echo "📚 LaTeX 模式：编译 ae2.md 为 PDF (XeLaTeX + WebP 转换)"
+
           if [ ! -f "ae2.md" ]; then
             echo "❌ 错误：ae2.md 文件不存在"
             exit 1
           fi
+
+          # 1. 安装 WebP 转换工具
           sudo apt-get install -y webp imagemagick
+
+          # 2. 修复 Markdown 中的反斜杠路径
           sed -i 's/\\/\//g' ae2.md
-          pandoc ae2.md -o ae2.tex --pdf-engine=xelatex --extract-media=./media
+
+          # 3. 生成完整的 LaTeX 文档（必须加 --standalone）
+          pandoc ae2.md -o ae2.tex \
+            --pdf-engine=xelatex \
+            --extract-media=./media \
+            --standalone
+
+          # 4. 将所有 WebP 图片转换为 PNG
           find ./media -name "*.webp" | while read file; do
             echo "转换 $file"
             dwebp "$file" -o "${file%.webp}.png"
             rm "$file"
           done
+
+          # 5. 修改 LaTeX 文件中的图片扩展名 .webp -> .png
           sed -i 's/\.webp/.png/g' ae2.tex
+
+          # 6. 修复 \hypertarget{ux...} 为正常中文标签（Python 解码）
+          python3 -c "
+          import re
+
+          def decode_ux(m):
+              s = m.group(1)
+              # 提取所有 uxXXXX 片段并解码
+              parts = re.findall(r'ux([0-9a-f]{4})', s)
+              decoded = ''.join(chr(int(p, 16)) for p in parts)
+              return f'\\\\hypertarget{{{decoded}}}{{'
+
+          with open('ae2.tex', 'r', encoding='utf-8') as f:
+              content = f.read()
+          content = re.sub(r'\\\\hypertarget\{((?:ux[0-9a-f]{4})+)\}', decode_ux, content)
+          with open('ae2.tex', 'w', encoding='utf-8') as f:
+              f.write(content)
+          "
+
+          # 7. 编译 PDF（两次以确保目录和交叉引用正确）
           xelatex -interaction=nonstopmode ae2.tex
           xelatex -interaction=nonstopmode ae2.tex
+
+          # 8. 重命名最终 PDF
           if [ -f "ae2.pdf" ]; then
             mv ae2.pdf ae2-documentation-LaTeX-test.pdf
             echo "✅ LaTeX PDF 编译成功"
