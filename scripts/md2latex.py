@@ -169,6 +169,16 @@ class LaTeXRenderer(Renderer):
 
     def footnotes(self, text):
         return text
+    def thematic_break(self):
+        return self.hrule()
+
+    def block_html(self, html):
+        # HTML 块在 LaTeX 中无法直接渲染，我们将其转义后作为普通文本输出
+        return self.escape(html) + '\n\n'
+
+    def block_unknown(self, block):
+        # 对于未知的块类型，简单返回空字符串（忽略）
+        return ''
 
 
 def main():
