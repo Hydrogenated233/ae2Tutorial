@@ -4,13 +4,14 @@
 import sys
 import re
 import mistune
+from mistune.renderers import BaseRenderer as Renderer  # 修复导入
 
 # 强制输出 UTF-8
 import codecs
 sys.stdout = codecs.getwriter('utf8')(sys.stdout.detach())
 sys.stdin = codecs.getreader('utf8')(sys.stdin.detach())
 
-class LaTeXRenderer(mistune.Renderer):
+class LaTeXRenderer(Renderer):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.replace = True
@@ -50,10 +51,9 @@ class LaTeXRenderer(mistune.Renderer):
 
 ''' % text.rstrip('\n')
 
-    # 标题（直接映射到 LaTeX 标题命令）
+    # 标题
     def header(self, text, level, raw=None):
         levels = ['', 'section', 'subsection', 'subsubsection', 'paragraph', 'subparagraph']
-        # level 从 1 开始
         if level <= len(levels)-1:
             cmd = levels[level]
         else:
@@ -98,13 +98,12 @@ class LaTeXRenderer(mistune.Renderer):
     def codespan(self, text):
         return '\\texttt{%s} ' % self.escape(text.rstrip())
 
-    # 换行（Markdown 中的 \ 或两个空格）
+    # 换行
     def linebreak(self):
         return '\\newline\n'
 
     # 删除线
     def strikethrough(self, text):
-        # 使用 ulem 包的 \sout
         return '\\sout{%s}' % text
 
     # 普通文本（转义特殊字符）
@@ -123,7 +122,6 @@ class LaTeXRenderer(mistune.Renderer):
                 newtext += c
                 continue
             if not in_math:
-                # 需要转义的特殊字符
                 if c == '\\':
                     newtext += '\\textbackslash{}'
                 elif c == '{':
@@ -158,7 +156,6 @@ class LaTeXRenderer(mistune.Renderer):
 
     # 图片（可选带标题）
     def image(self, src, title, text):
-        # 如果有文本，作为 caption 和 label
         if text:
             return '\\ref{%s}%%\n' \
                    '\\begin{figure}[htbp]\n' \
@@ -189,14 +186,13 @@ class LaTeXRenderer(mistune.Renderer):
 def main():
     text = sys.stdin.read()
 
-    # 尝试提取 front matter（简单支持 YAML 格式，无严格解析）
+    # 尝试提取 front matter（简单支持 YAML 格式）
     front_matter = {}
     if text.startswith('---\n'):
         parts = text.split('\n---\n', 1)
         if len(parts) == 2:
             front_text = parts[0][4:]  # 去掉开头的 "---\n"
             rest = parts[1]
-            # 简单解析 key: value
             for line in front_text.split('\n'):
                 if ':' in line:
                     key, _, val = line.partition(':')
@@ -224,9 +220,6 @@ def main():
 \tcbuselibrary{skins,breakable}
 
 \lstset{frame=single,breaklines=true,postbreak=\raisebox{0ex}[0ex][0ex]{\ensuremath{\hookrightarrow\space}}}
-
-% 自定义引用块样式（已由 block_quote 使用 tcolorbox）
-% 这里不重复定义，避免冲突
 
 \renewcommand{\lstlistingname}{程序}
 \renewcommand{\contentsname}{目录}
