@@ -37,7 +37,7 @@ jobs:
       - name: 生成时间戳
         id: timestamp
         run: |
-          CURRENT_TIME=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          CURRENT_TIME=$(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S CST')
           echo "current_time=$CURRENT_TIME" >> $GITHUB_OUTPUT
           echo "生成时间: $CURRENT_TIME"
       
@@ -340,10 +340,6 @@ jobs:
           - **生成时间**: ${{ steps.timestamp.outputs.current_time }}
           - **触发方式**: ${{ github.event_name }}
           - **测试模式**: ${{ github.event.inputs.test_mode || 'false' }}
-          
-          ### 文档说明
-          该 PDF 由 GitHub Actions 自动编译生成，包含 AE2（Applied Energistics 2）的教程内容。
-          EOF
           
           BODY_CONTENT=$(cat release_body.md)
           echo "body<<EOF" >> $GITHUB_OUTPUT
