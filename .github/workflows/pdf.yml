@@ -2,7 +2,7 @@ name: 编译并发布 PDF 到 Release
 
 on:
   push:
-    branches:        # 只监听特定分支的提交
+    branches:
       - main
   workflow_dispatch:
     inputs:
@@ -10,12 +10,15 @@ on:
         description: '测试模式（创建测试 PDF）'
         type: boolean
         default: false
-        required: false
       tag_name:
         description: '指定 Release 标签名（如 v1.0.0）'
         type: string
         required: false
         default: 'test'
+      latex_mode:
+        description: 'LaTeX 编译模式（实验性，使用 XeLaTeX）'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -33,9 +36,9 @@ jobs:
         run: |
           echo "触发方式: ${{ github.event_name }}"
           echo "测试模式: ${{ github.event.inputs.test_mode }}"
+          echo "LaTeX 模式: ${{ github.event.inputs.latex_mode }}"
           echo "标签名: ${{ github.event.release.tag_name || github.event.inputs.tag_name }}"
 
-      # 生成时间戳（东八区）
       - name: 生成时间戳
         id: timestamp
         run: |
@@ -43,8 +46,8 @@ jobs:
           echo "current_time=$CURRENT_TIME" >> $GITHUB_OUTPUT
           echo "生成时间: $CURRENT_TIME"
 
-      # 安装依赖和中文字体
-      - name: 安装依赖和中文字体
+      # 基础依赖（pandoc、wkhtmltopdf 等）
+      - name: 安装基础依赖和中文字体
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -57,9 +60,23 @@ jobs:
             fontconfig
           sudo fc-cache -fv
 
-      # 测试模式：创建测试 PDF
+      # LaTeX 编译模式：额外安装 TeX Live
+      - name: 安装 TeX Live（仅 LaTeX 模式）
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.latex_mode == 'true'
+        run: |
+          sudo apt-get install -y \
+            texlive-xetex \
+            texlive-fonts-recommended \
+            texlive-latex-extra
+          # 安装中文字体支持（如果需要）
+          sudo apt-get install -y texlive-lang-chinese
+
+      # 测试模式：创建测试 PDF（若同时选择 LaTeX 模式则跳过）
       - name: 测试模式 - 创建测试 PDF
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.test_mode == 'true'
+        if: >
+          github.event_name == 'workflow_dispatch' &&
+          github.event.inputs.test_mode == 'true' &&
+          github.event.inputs.latex_mode != 'true'
         run: |
           echo "🔧 测试模式：创建测试 PDF"
           echo "# 测试 PDF" > test.md
@@ -69,45 +86,60 @@ jobs:
           xvfb-run wkhtmltopdf --enable-local-file-access --encoding utf-8 test.md test.pdf
           ls -lh test.pdf
 
-      # 正常模式：编译 ae2.md 为 PDF（release、手动非测试、push 均执行）
-      - name: 编译 ae2.md 为 PDF
+      # LaTeX 编译模式：使用 XeLaTeX 直接生成 PDF
+      - name: LaTeX 编译模式 - 生成 PDF
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.latex_mode == 'true'
+        run: |
+          echo "📚 LaTeX 模式：编译 ae2.md 为 PDF (XeLaTeX)"
+          if [ ! -f "ae2.md" ]; then
+            echo "❌ 错误：ae2.md 文件不存在"
+            exit 1
+          fi
+          # 使用 pandoc 调用 xelatex，生成带测试标记的 PDF
+          pandoc ae2.md \
+            -o ae2-documentation-LaTeX-test.pdf \
+            --pdf-engine=xelatex \
+            -V mainfont="Noto Sans CJK SC" \
+            -V monofont="Noto Sans Mono CJK SC" \
+            -V geometry:margin=2.5cm \
+            --toc \
+            --toc-depth=2
+          if [ -f "ae2-documentation-LaTeX-test.pdf" ]; then
+            echo "✅ LaTeX PDF 编译成功"
+            ls -lh ae2-documentation-LaTeX-test.pdf
+          else
+            echo "❌ LaTeX PDF 编译失败"
+            exit 1
+          fi
+
+      # 正常模式：使用 wkhtmltopdf 编译（仅在非测试、非 LaTeX 模式时执行）
+      - name: 编译 ae2.md 为 PDF (wkhtmltopdf)
         if: >
           github.event_name == 'release' ||
-          (github.event_name == 'workflow_dispatch' && github.event.inputs.test_mode != 'true') ||
+          (github.event_name == 'workflow_dispatch' &&
+           github.event.inputs.test_mode != 'true' &&
+           github.event.inputs.latex_mode != 'true') ||
           github.event_name == 'push'
         run: |
-          echo "📚 编译 ae2.md 为 PDF"
-
+          echo "📚 正常模式：编译 ae2.md 为 PDF (wkhtmltopdf)"
           if [ ! -f "ae2.md" ]; then
             echo "❌ 错误：ae2.md 文件不存在"
             exit 1
           fi
 
-          # 转换为 HTML
-          echo "步骤1: 转换为 HTML..."
           pandoc ae2.md -o content.html \
             --standalone \
             --metadata pagetitle="Applied Energistics 2 Tutorial" \
             --metadata charset=utf-8
-
-          # 提取 body 内容
-          echo "步骤2: 提取 body 内容..."
           sed -n '/<body>/,/<\/body>/p' content.html | sed '1d;$d' > body-content.html
 
-          # 创建最终 HTML
-          echo "步骤3: 创建最终 HTML..."
-          cat > final.html << EOF
+          cat > final.html << 'EOF'
           <!DOCTYPE html>
           <html>
           <head>
             <meta charset="UTF-8">
             <style>
-              /* 基础样式 */
-              * {
-                margin: 0;
-                padding: 0;
-                box-sizing: border-box;
-              }
+              * { margin:0; padding:0; box-sizing: border-box; }
               body {
                 font-family: "Noto Sans CJK SC", "WenQuanYi Micro Hei", "WenQuanYi Zen Hei", "Microsoft YaHei", "SimHei", "PingFang SC", "Hiragino Sans GB", sans-serif;
                 font-size: 14px;
@@ -128,10 +160,7 @@ jobs:
               h2 { font-size: 1.5em; border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; }
               h3 { font-size: 1.25em; }
               h4 { font-size: 1em; }
-              p {
-                margin: 0 0 0.8em 0;
-                line-height: 1.6;
-              }
+              p { margin: 0 0 0.8em 0; line-height: 1.6; }
               blockquote {
                 margin: 1em 0;
                 padding: 0.5em 1em;
@@ -139,9 +168,6 @@ jobs:
                 color: #6a737d;
                 background-color: #f6f8fa;
                 font-style: normal;
-              }
-              blockquote p {
-                margin: 0.5em 0;
               }
               code {
                 font-family: "Courier New", "Noto Sans CJK SC", monospace;
@@ -157,16 +183,8 @@ jobs:
                 border-radius: 6px;
                 margin: 1em 0;
               }
-              ul, ol {
-                margin: 0.5em 0 0.8em 1.5em;
-                padding-left: 0;
-              }
-              img {
-                max-width: 100%;
-                height: auto;
-                display: block;
-                margin: 1em auto;
-              }
+              ul, ol { margin: 0.5em 0 0.8em 1.5em; padding-left: 0; }
+              img { max-width: 100%; height: auto; display: block; margin: 1em auto; }
               table {
                 border-collapse: collapse;
                 width: 100%;
@@ -174,26 +192,10 @@ jobs:
                 display: block;
                 overflow-x: auto;
               }
-              th, td {
-                border: 1px solid #dfe2e5;
-                padding: 6px 13px;
-                text-align: left;
-              }
-              th {
-                background-color: #f6f8fa;
-                font-weight: 600;
-              }
-              hr {
-                height: 0.25em;
-                padding: 0;
-                margin: 1.5em 0;
-                background-color: #e1e4e8;
-                border: 0;
-              }
-              a {
-                color: #0366d6;
-                text-decoration: none;
-              }
+              th, td { border: 1px solid #dfe2e5; padding: 6px 13px; text-align: left; }
+              th { background-color: #f6f8fa; font-weight: 600; }
+              hr { height: 0.25em; padding: 0; margin: 1.5em 0; background-color: #e1e4e8; border: 0; }
+              a { color: #0366d6; text-decoration: none; }
               .footer-note {
                 margin-top: 50px;
                 padding-top: 20px;
@@ -202,12 +204,8 @@ jobs:
                 color: #666;
                 text-align: center;
               }
-              .content > *:first-child {
-                margin-top: 0;
-              }
-              .content > *:last-child {
-                margin-bottom: 0;
-              }
+              .content > *:first-child { margin-top: 0; }
+              .content > *:last-child { margin-bottom: 0; }
             </style>
           </head>
           <body>
@@ -222,12 +220,6 @@ jobs:
           </html>
           EOF
 
-          # 验证 HTML
-          echo "步骤4: 验证 HTML 文件大小..."
-          ls -lh final.html
-
-          # 转换为 PDF
-          echo "步骤5: 转换为 PDF..."
           xvfb-run wkhtmltopdf \
             --enable-local-file-access \
             --encoding utf-8 \
@@ -250,11 +242,13 @@ jobs:
             exit 1
           fi
 
-      # 验证文件存在
-      - name: 验证文件存在
+      # 确定要上传的文件路径
+      - name: 验证文件存在并设置路径
         id: verify-file
         run: |
-          if [ "${{ github.event.inputs.test_mode }}" == "true" ]; then
+          if [ "${{ github.event.inputs.latex_mode }}" == "true" ]; then
+            FILE_PATH="ae2-documentation-LaTeX-test.pdf"
+          elif [ "${{ github.event.inputs.test_mode }}" == "true" ]; then
             FILE_PATH="test.pdf"
           else
             FILE_PATH="ae2-documentation.pdf"
@@ -268,57 +262,53 @@ jobs:
             exit 1
           fi
 
-      # 设置标签名和 Release 名称（动态生成）
+      # 设置标签名和 Release 名称
       - name: 设置标签名
         id: set-tag
         run: |
           if [ "${{ github.event_name }}" == "push" ]; then
-            # 生成 nightly 标签：nightly-YYYY-MM-DD-HHMM
             TAG="nightly-$(TZ='Asia/Shanghai' date '+%Y-%m-%d-%H%M')"
             NAME="Nightly Build $(TZ='Asia/Shanghai' date '+%y-%m-%d %H:%M')"
             echo "tag_name=${TAG}" >> $GITHUB_OUTPUT
             echo "release_name=${NAME}" >> $GITHUB_OUTPUT
             echo "prerelease=true" >> $GITHUB_OUTPUT
           else
-            # release 或手动触发
             TAG="${{ github.event.release.tag_name || github.event.inputs.tag_name }}"
             echo "tag_name=${TAG:-test}" >> $GITHUB_OUTPUT
             echo "release_name=AE2 Tutorial - ${TAG:-test}" >> $GITHUB_OUTPUT
-            # 只有手动触发且未指定 release 时可能不是预发布，但为了安全统一设为 false（由 release 事件决定）
             if [ "${{ github.event_name }}" == "release" ]; then
-              # release 事件时，预发布标志由 GitHub Release 本身决定，这里不设置，action 会沿用
               echo "prerelease=false" >> $GITHUB_OUTPUT
             else
-              # workflow_dispatch 默认不是预发布
               echo "prerelease=false" >> $GITHUB_OUTPUT
             fi
           fi
 
-      # 生成 Release 说明（动态填充触发方式、测试模式）
+      # 生成 Release 说明
       - name: 生成 Release 说明
         id: release-body
         run: |
-          # 根据事件类型生成描述
           if [ "${{ github.event_name }}" == "push" ]; then
             TRIGGER="push (commit: ${{ github.sha }})"
             TEST_MODE="false"
+            LATEX_MODE="false"
           elif [ "${{ github.event_name }}" == "release" ]; then
             TRIGGER="release published"
             TEST_MODE="false"
+            LATEX_MODE="false"
           else
             TRIGGER="manual workflow_dispatch"
             TEST_MODE="${{ github.event.inputs.test_mode || 'false' }}"
+            LATEX_MODE="${{ github.event.inputs.latex_mode || 'false' }}"
           fi
 
           cat > release_body.md << EOF
           ## AE2 教程文档
-
           此 Release 包含自动生成的 PDF 文档。
-
           - **源文件**: \`ae2.md\`
           - **生成时间**: ${{ steps.timestamp.outputs.current_time }}
           - **触发方式**: ${TRIGGER}
           - **测试模式**: ${TEST_MODE}
+          - **LaTeX 模式**: ${LATEX_MODE}
           EOF
 
           BODY_CONTENT=$(cat release_body.md)
@@ -326,7 +316,7 @@ jobs:
           echo "$BODY_CONTENT" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      # 上传到 Release（支持预发布）
+      # 上传到 Release
       - name: 上传到 Release
         uses: softprops/action-gh-release@v1
         with:
