@@ -39,6 +39,19 @@ jobs:
           echo "LaTeX 模式: ${{ github.event.inputs.latex_mode }}"
           echo "标签名: ${{ github.event.release.tag_name || github.event.inputs.tag_name }}"
 
+      # 新增：检查 commit message 是否包含跳过标记
+      - name: 检查是否跳过构建
+        id: check-skip
+        if: github.event_name == 'push'
+        run: |
+          COMMIT_MSG="${{ github.event.head_commit.message }}"
+          if [[ "$COMMIT_MSG" == *"[skip ci]"* ]]; then
+            echo "skip_build=true" >> $GITHUB_OUTPUT
+            echo "Commit message contains [skip ci], skipping build."
+          else
+            echo "skip_build=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: 生成时间戳
         id: timestamp
         run: |
@@ -46,8 +59,9 @@ jobs:
           echo "current_time=$CURRENT_TIME" >> $GITHUB_OUTPUT
           echo "生成时间: $CURRENT_TIME"
 
-      # 基础依赖（pandoc、wkhtmltopdf 等）
+      # 安装依赖和中文字体（增加跳过条件）
       - name: 安装基础依赖和中文字体
+        if: github.event_name != 'push' || steps.check-skip.outputs.skip_build != 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -60,23 +74,25 @@ jobs:
             fontconfig
           sudo fc-cache -fv
 
-      # LaTeX 编译模式：额外安装 TeX Live
+      # LaTeX 编译模式：额外安装 TeX Live（同样增加跳过条件）
       - name: 安装 TeX Live（仅 LaTeX 模式）
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.latex_mode == 'true'
+        if: >
+          (github.event_name == 'workflow_dispatch' && github.event.inputs.latex_mode == 'true') &&
+          (github.event_name != 'push' || steps.check-skip.outputs.skip_build != 'true')
         run: |
           sudo apt-get install -y \
             texlive-xetex \
             texlive-fonts-recommended \
-            texlive-latex-extra
-          # 安装中文字体支持（如果需要）
-          sudo apt-get install -y texlive-lang-chinese
+            texlive-latex-extra \
+            texlive-lang-chinese
 
-      # 测试模式：创建测试 PDF（若同时选择 LaTeX 模式则跳过）
+      # 测试模式：创建测试 PDF
       - name: 测试模式 - 创建测试 PDF
         if: >
           github.event_name == 'workflow_dispatch' &&
           github.event.inputs.test_mode == 'true' &&
-          github.event.inputs.latex_mode != 'true'
+          github.event.inputs.latex_mode != 'true' &&
+          (github.event_name != 'push' || steps.check-skip.outputs.skip_build != 'true')
         run: |
           echo "🔧 测试模式：创建测试 PDF"
           echo "# 测试 PDF" > test.md
@@ -87,43 +103,28 @@ jobs:
           ls -lh test.pdf
 
       # LaTeX 编译模式：使用 XeLaTeX 直接生成 PDF
-      # LaTeX 编译模式：使用 XeLaTeX 直接生成 PDF（支持 WebP 转换）
       - name: LaTeX 编译模式 - 生成 PDF
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.latex_mode == 'true'
+        if: >
+          github.event_name == 'workflow_dispatch' &&
+          github.event.inputs.latex_mode == 'true' &&
+          (github.event_name != 'push' || steps.check-skip.outputs.skip_build != 'true')
         run: |
           echo "📚 LaTeX 模式：编译 ae2.md 为 PDF (XeLaTeX + WebP 转换)"
-
           if [ ! -f "ae2.md" ]; then
             echo "❌ 错误：ae2.md 文件不存在"
             exit 1
           fi
-
-          # 1. 安装 WebP 转换工具
           sudo apt-get install -y webp imagemagick
-
-          # 2. 修复 Markdown 中的反斜杠路径（将 \ 替换为 /）
           sed -i 's/\\/\//g' ae2.md
-
-          # 3. 生成 LaTeX 中间文件，并提取媒体文件
-          pandoc ae2.md -o ae2.tex \
-            --pdf-engine=xelatex \
-            --extract-media=./media
-
-          # 4. 将所有 WebP 转换为 PNG
+          pandoc ae2.md -o ae2.tex --pdf-engine=xelatex --extract-media=./media
           find ./media -name "*.webp" | while read file; do
             echo "转换 $file"
             dwebp "$file" -o "${file%.webp}.png"
             rm "$file"
           done
-
-          # 5. 修改 LaTeX 文件中的图片扩展名 .webp -> .png
           sed -i 's/\.webp/.png/g' ae2.tex
-
-          # 6. 编译 PDF（可能需要两次以处理交叉引用）
           xelatex -interaction=nonstopmode ae2.tex
           xelatex -interaction=nonstopmode ae2.tex
-
-          # 7. 重命名最终 PDF
           if [ -f "ae2.pdf" ]; then
             mv ae2.pdf ae2-documentation-LaTeX-test.pdf
             echo "✅ LaTeX PDF 编译成功"
@@ -133,27 +134,26 @@ jobs:
             exit 1
           fi
 
-      # 正常模式：使用 wkhtmltopdf 编译（仅在非测试、非 LaTeX 模式时执行）
+      # 正常模式：使用 wkhtmltopdf 编译
       - name: 编译 ae2.md 为 PDF (wkhtmltopdf)
         if: >
-          github.event_name == 'release' ||
-          (github.event_name == 'workflow_dispatch' &&
-           github.event.inputs.test_mode != 'true' &&
-           github.event.inputs.latex_mode != 'true') ||
-          github.event_name == 'push'
+          (github.event_name == 'release' ||
+           (github.event_name == 'workflow_dispatch' &&
+            github.event.inputs.test_mode != 'true' &&
+            github.event.inputs.latex_mode != 'true') ||
+           github.event_name == 'push') &&
+          (github.event_name != 'push' || steps.check-skip.outputs.skip_build != 'true')
         run: |
           echo "📚 正常模式：编译 ae2.md 为 PDF (wkhtmltopdf)"
           if [ ! -f "ae2.md" ]; then
             echo "❌ 错误：ae2.md 文件不存在"
             exit 1
           fi
-
           pandoc ae2.md -o content.html \
             --standalone \
             --metadata pagetitle="Applied Energistics 2 Tutorial" \
             --metadata charset=utf-8
           sed -n '/<body>/,/<\/body>/p' content.html | sed '1d;$d' > body-content.html
-
           cat > final.html << 'EOF'
           <!DOCTYPE html>
           <html>
@@ -240,7 +240,6 @@ jobs:
           </body>
           </html>
           EOF
-
           xvfb-run wkhtmltopdf \
             --enable-local-file-access \
             --encoding utf-8 \
@@ -254,7 +253,6 @@ jobs:
             --disable-smart-shrinking \
             final.html \
             ae2-documentation.pdf
-
           if [ -f "ae2-documentation.pdf" ]; then
             echo "✅ PDF 编译成功"
             ls -lh ae2-documentation.pdf
@@ -263,9 +261,10 @@ jobs:
             exit 1
           fi
 
-      # 确定要上传的文件路径
+      # 验证文件存在（增加跳过条件）
       - name: 验证文件存在并设置路径
         id: verify-file
+        if: github.event_name != 'push' || steps.check-skip.outputs.skip_build != 'true'
         run: |
           if [ "${{ github.event.inputs.latex_mode }}" == "true" ]; then
             FILE_PATH="ae2-documentation-LaTeX-test.pdf"
@@ -283,9 +282,10 @@ jobs:
             exit 1
           fi
 
-      # 设置标签名和 Release 名称
+      # 设置标签名和 Release 名称（增加跳过条件）
       - name: 设置标签名
         id: set-tag
+        if: github.event_name != 'push' || steps.check-skip.outputs.skip_build != 'true'
         run: |
           if [ "${{ github.event_name }}" == "push" ]; then
             TAG="nightly-$(TZ='Asia/Shanghai' date '+%Y-%m-%d-%H%M')"
@@ -304,9 +304,10 @@ jobs:
             fi
           fi
 
-      # 生成 Release 说明
+      # 生成 Release 说明（增加跳过条件）
       - name: 生成 Release 说明
         id: release-body
+        if: github.event_name != 'push' || steps.check-skip.outputs.skip_build != 'true'
         run: |
           if [ "${{ github.event_name }}" == "push" ]; then
             TRIGGER="push (commit: ${{ github.sha }})"
@@ -337,9 +338,10 @@ jobs:
           echo "$BODY_CONTENT" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      # 上传到 Release
+      # 上传到 Release（增加跳过条件）
       - name: 上传到 Release
         uses: softprops/action-gh-release@v1
+        if: github.event_name != 'push' || steps.check-skip.outputs.skip_build != 'true'
         with:
           files: ${{ steps.verify-file.outputs.file_path }}
           tag_name: ${{ steps.set-tag.outputs.tag_name }}
@@ -351,6 +353,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
 
       - name: 显示上传完成
+        if: github.event_name != 'push' || steps.check-skip.outputs.skip_build != 'true'
         run: |
           echo "✅ 上传完成"
           echo "Release 标签: ${{ steps.set-tag.outputs.tag_name }}"
