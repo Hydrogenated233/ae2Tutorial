@@ -104,7 +104,7 @@ jobs:
           xvfb-run wkhtmltopdf --enable-local-file-access --encoding utf-8 test.md test.pdf
           ls -lh test.pdf
 
-      # LaTeX 编译模式：使用 XeLaTeX 直接生成 PDF（支持 WebP 转换）
+      # LaTeX 编译模式：使用 XeLaTeX 直接生成 PDF（支持 WebP 转换 + 样式修复）
       - name: LaTeX 编译模式 - 生成 PDF
         if: >
           github.event_name == 'workflow_dispatch' &&
@@ -118,33 +118,98 @@ jobs:
             exit 1
           fi
 
-          # 1. 安装 WebP 转换工具
+          # 1. 安装 WebP 转换工具（如果尚未安装）
           sudo apt-get install -y webp imagemagick
 
           # 2. 修复 Markdown 中的反斜杠路径
           sed -i 's/\\/\//g' ae2.md
 
-          # 3. 生成完整的 LaTeX 文档，并传递中文字体参数
+          # 3. 创建自定义 LaTeX 头部文件（包含样式定义）
+          cat > header.tex << 'EOF'
+          % 修复删除线（使用 ulem 包，支持中文）
+          \usepackage[normalem]{ulem}
+          \renewcommand{\ULdepth}{0.5ex}
+          \newcommand{\st}[1]{\sout{#1}}
+
+          % 引用块样式（仿 GitHub 风格）
+          \usepackage{xcolor}
+          \usepackage{tcolorbox}
+          \tcbuselibrary{skins,breakable}
+          \newtcolorbox{quote}{%
+            colback=gray!5,
+            colframe=gray!30,
+            boxrule=0.5pt,
+            left=12pt,
+            right=12pt,
+            top=6pt,
+            bottom=6pt,
+            arc=0pt,
+            outer arc=0pt,
+            boxsep=0pt,
+            before skip=10pt,
+            after skip=10pt,
+            breakable
+          }
+
+          % 定义 blockquote 环境（Pandoc 默认可能使用 blockquote）
+          \newenvironment{blockquote}{\begin{quote}}{\end{quote}}
+
+          % 行内代码样式
+          \usepackage{xcolor}
+          \definecolor{codebg}{RGB}{246,248,250}
+          \definecolor{codefg}{RGB}{31,35,40}
+          \let\oldtexttt\texttt
+          \renewcommand{\texttt}[1]{%
+            \colorbox{codebg}{\oldtexttt{\color{codefg}#1}}%
+          }
+
+          % 代码块样式（用 listings 包美化）
+          \usepackage{listings}
+          \lstset{
+            basicstyle=\ttfamily\small,
+            backgroundcolor=\color{codebg},
+            breaklines=true,
+            frame=single,
+            framerule=0pt,
+            rulecolor=\color{gray!30},
+            aboveskip=10pt,
+            belowskip=10pt,
+            xleftmargin=10pt,
+            xrightmargin=10pt
+          }
+
+          % 修复换行：允许长行自动换行
+          \usepackage{parskip}
+          \setlength{\parskip}{0.5em}
+          \setlength{\emergencystretch}{3em}
+          \pretolerance=1000
+          \tolerance=2000
+          \setlength{\hfuzz}{1pt}
+          EOF
+
+          # 4. 生成完整的 LaTeX 文档，并注入头部样式
           pandoc ae2.md -o ae2.tex \
             --pdf-engine=xelatex \
             --extract-media=./media \
             --standalone \
+            --include-in-header=header.tex \
             -V mainfont="Noto Sans CJK SC" \
             -V sansfont="Noto Sans CJK SC" \
             -V monofont="Noto Sans Mono CJK SC" \
-            -V CJKmainfont="Noto Sans CJK SC"
+            -V CJKmainfont="Noto Sans CJK SC" \
+            -V geometry:margin=2.5cm
 
-          # 4. 将所有 WebP 图片转换为 PNG
+          # 5. 将所有 WebP 图片转换为 PNG
           find ./media -name "*.webp" | while read file; do
             echo "转换 $file"
             dwebp "$file" -o "${file%.webp}.png"
             rm "$file"
           done
 
-          # 5. 修改 LaTeX 文件中的图片扩展名 .webp -> .png
+          # 6. 修改 LaTeX 文件中的图片扩展名 .webp -> .png
           sed -i 's/\.webp/.png/g' ae2.tex
 
-          # 6. 修复 \hypertarget{ux...} 为正常中文标签
+          # 7. 修复 \hypertarget{ux...} 为正常中文标签
           python3 -c "
           import re
 
@@ -163,36 +228,15 @@ jobs:
               f.write(content)
           "
 
-          # 7. 调整标题级别：\subsection -> \section, \subsubsection -> \subsection
+          # 8. 提升标题层级：将 \subsection 替换为 \section，\subsubsection 替换为 \subsection
           sed -i 's/\\subsection{/\\section{/g' ae2.tex
           sed -i 's/\\subsubsection{/\\subsection{/g' ae2.tex
 
-          # 8. 确保删除线功能（添加 soul 包，并将 \st 改为 \sout 或保留）
-          # 检查是否已加载 soul，如果没有则在导言区添加
-          if ! grep -q "\\\\usepackage{soul}" ae2.tex; then
-            sed -i '/^\\\\documentclass/a \\\\usepackage{soul}' ae2.tex
-          fi
+          # 9. 编译 PDF（两次以确保目录和交叉引用正确）
+          xelatex -interaction=nonstopmode ae2.tex
+          xelatex -interaction=nonstopmode ae2.tex
 
-          # 9. 为引用块添加自定义样式（灰色背景、左边框）
-          # 在导言区添加 quote 环境的重新定义
-          cat >> ae2.tex << 'EOF'
-          \usepackage{xcolor}
-          \definecolor{quote-bg}{rgb}{0.98,0.98,0.98}
-          \definecolor{quote-border}{rgb}{0.85,0.85,0.85}
-          \renewenvironment{quote}
-            {\par\addvspace{1em}\begin{list}{}{\leftmargin=1.5em\rightmargin=1.5em}\item\relax
-            \colorbox{quote-bg}{\begin{minipage}{\linewidth-2\fboxsep}\itshape}}
-            {\end{minipage}\end{list}\par\addvspace{1em}}
-          EOF
-
-          # 可选：调整换行符（将 \\ 替换为 \newline，但可能影响表格等，谨慎）
-          # 我们可以不做全局替换，因为 \\ 在 LaTeX 中通常有效。如果用户报告换行无效，再考虑。
-
-          # 10. 编译 PDF（两次以确保目录和交叉引用正确，忽略非致命错误）
-          xelatex -interaction=nonstopmode ae2.tex || true
-          xelatex -interaction=nonstopmode ae2.tex || true
-
-          # 11. 重命名最终 PDF
+          # 10. 重命名最终 PDF
           if [ -f "ae2.pdf" ]; then
             mv ae2.pdf ae2-documentation-LaTeX-test.pdf
             echo "✅ LaTeX PDF 编译成功"
