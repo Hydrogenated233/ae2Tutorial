@@ -30,6 +30,8 @@ class LaTeXRenderer(Renderer):
         return '\\begin{lstlisting}\n%s\n\\end{lstlisting}\n\n' % code
 
     def block_quote(self, text):
+        # 对引用文本进行转义
+        escaped_text = self.escape(text.rstrip('\n'))
         return r'''\begin{tcolorbox}[
     colback=gray!5,
     colframe=gray!30,
@@ -48,15 +50,17 @@ class LaTeXRenderer(Renderer):
 %s
 \end{tcolorbox}
 
-''' % text.rstrip('\n')
+''' % escaped_text
 
     def header(self, text, level, raw=None):
+        # 标题文本需要转义
+        escaped_text = self.escape(text)
         levels = ['', 'section', 'subsection', 'subsubsection', 'paragraph', 'subparagraph']
         if level <= len(levels)-1:
             cmd = levels[level]
         else:
             cmd = 'subparagraph'
-        return '\\%s{%s}\n\n' % (cmd, text)
+        return '\\%s{%s}\n\n' % (cmd, escaped_text)
 
     def hrule(self):
         return '\\hrule\n\n'
@@ -66,10 +70,14 @@ class LaTeXRenderer(Renderer):
         return '\\begin{%s}\n%s\\end{%s}\n\n' % (cmd, body, cmd)
 
     def list_item(self, text):
-        return '\\item %s\n' % text
+        # 列表项文本需要转义
+        escaped_text = self.escape(text)
+        return '\\item %s\n' % escaped_text
 
     def paragraph(self, text):
-        return '%s\n\n' % text.strip(' ')
+        # 段落文本需要转义
+        escaped_text = self.escape(text.strip(' '))
+        return '%s\n\n' % escaped_text
 
     def table(self, header, body):
         raise NotImplementedError
