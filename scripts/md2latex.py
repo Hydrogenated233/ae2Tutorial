@@ -16,7 +16,8 @@ class LaTeXRenderer(Renderer):
         self.replace = True
 
     def finalize(self, data):
-        return data
+        # 重要：将列表中的各段内容连接成字符串
+        return ''.join(data)
 
     def block_code(self, code, lang=None):
         code = code.rstrip('\n')
@@ -30,7 +31,6 @@ class LaTeXRenderer(Renderer):
         return '\\begin{lstlisting}\n%s\n\\end{lstlisting}\n\n' % code
 
     def block_quote(self, text):
-        # 对引用文本进行转义
         escaped_text = self.escape(text.rstrip('\n'))
         return r'''\begin{tcolorbox}[
     colback=gray!5,
@@ -53,7 +53,6 @@ class LaTeXRenderer(Renderer):
 ''' % escaped_text
 
     def header(self, text, level, raw=None):
-        # 标题文本需要转义
         escaped_text = self.escape(text)
         levels = ['', 'section', 'subsection', 'subsubsection', 'paragraph', 'subparagraph']
         if level <= len(levels)-1:
@@ -70,12 +69,10 @@ class LaTeXRenderer(Renderer):
         return '\\begin{%s}\n%s\\end{%s}\n\n' % (cmd, body, cmd)
 
     def list_item(self, text):
-        # 列表项文本需要转义
         escaped_text = self.escape(text)
         return '\\item %s\n' % escaped_text
 
     def paragraph(self, text):
-        # 段落文本需要转义
         escaped_text = self.escape(text.strip(' '))
         return '%s\n\n' % escaped_text
 
