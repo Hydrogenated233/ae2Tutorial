@@ -105,6 +105,7 @@ jobs:
           ls -lh test.pdf
 
       # LaTeX 编译模式：使用 XeLaTeX 直接生成 PDF（支持 WebP 转换）
+      # LaTeX 编译模式：使用 XeLaTeX 直接生成 PDF（支持 WebP 转换）
       - name: LaTeX 编译模式 - 生成 PDF
         if: >
           github.event_name == 'workflow_dispatch' &&
@@ -118,17 +119,21 @@ jobs:
             exit 1
           fi
 
-          # 1. 安装 WebP 转换工具
+          # 1. 安装 WebP 转换工具（如果尚未安装）
           sudo apt-get install -y webp imagemagick
 
           # 2. 修复 Markdown 中的反斜杠路径
           sed -i 's/\\/\//g' ae2.md
 
-          # 3. 生成完整的 LaTeX 文档（必须加 --standalone）
+          # 3. 生成完整的 LaTeX 文档，并传递中文字体参数
           pandoc ae2.md -o ae2.tex \
             --pdf-engine=xelatex \
             --extract-media=./media \
-            --standalone
+            --standalone \
+            -V mainfont="Noto Sans CJK SC" \
+            -V sansfont="Noto Sans CJK SC" \
+            -V monofont="Noto Sans Mono CJK SC" \
+            -V CJKmainfont="Noto Sans CJK SC"
 
           # 4. 将所有 WebP 图片转换为 PNG
           find ./media -name "*.webp" | while read file; do
@@ -149,6 +154,9 @@ jobs:
               # 提取所有 uxXXXX 片段并解码
               parts = re.findall(r'ux([0-9a-f]{4})', s)
               decoded = ''.join(chr(int(p, 16)) for p in parts)
+              # 如果解码后为空，保留原样（防止空标签）
+              if not decoded:
+                  return m.group(0)
               return f'\\\\hypertarget{{{decoded}}}{{'
 
           with open('ae2.tex', 'r', encoding='utf-8') as f:
@@ -158,19 +166,19 @@ jobs:
               f.write(content)
           "
 
-          # 7. 编译 PDF（两次以确保目录和交叉引用正确）
-          xelatex -interaction=nonstopmode ae2.tex
-          xelatex -interaction=nonstopmode ae2.tex
+              # 7. 编译 PDF（两次以确保目录和交叉引用正确，忽略非致命错误）
+              xelatex -interaction=nonstopmode ae2.tex || true
+              xelatex -interaction=nonstopmode ae2.tex || true
 
-          # 8. 重命名最终 PDF
-          if [ -f "ae2.pdf" ]; then
-            mv ae2.pdf ae2-documentation-LaTeX-test.pdf
-            echo "✅ LaTeX PDF 编译成功"
-            ls -lh ae2-documentation-LaTeX-test.pdf
-          else
-            echo "❌ LaTeX PDF 编译失败"
-            exit 1
-          fi
+              # 8. 重命名最终 PDF
+              if [ -f "ae2.pdf" ]; then
+                mv ae2.pdf ae2-documentation-LaTeX-test.pdf
+                echo "✅ LaTeX PDF 编译成功"
+                ls -lh ae2-documentation-LaTeX-test.pdf
+              else
+                echo "❌ LaTeX PDF 编译失败"
+                exit 1
+              fi
 
       # 正常模式：使用 wkhtmltopdf 编译
       - name: 编译 ae2.md 为 PDF (wkhtmltopdf)
