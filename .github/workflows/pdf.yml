@@ -36,7 +36,7 @@ jobs:
           echo "测试模式: ${{ github.event.inputs.test_mode }}"
           echo "标签名: ${{ github.event.release.tag_name || github.event.inputs.tag_name }}"
 
-      # 新增：检查 commit message 是否包含跳过标记
+      # 检查 commit message 是否包含跳过标记
       - name: 检查是否跳过构建
         id: check-skip
         if: github.event_name == 'push'
@@ -56,7 +56,7 @@ jobs:
           echo "current_time=$CURRENT_TIME" >> $GITHUB_OUTPUT
           echo "生成时间: $CURRENT_TIME"
 
-      # 安装依赖和中文字体（增加跳过条件）
+      # 安装依赖和中文字体
       - name: 安装基础依赖和中文字体
         if: github.event_name != 'push' || steps.check-skip.outputs.skip_build != 'true'
         run: |
@@ -100,11 +100,17 @@ jobs:
             echo "❌ 错误：ae2.md 文件不存在"
             exit 1
           fi
+          
+          # 使用 pandoc 生成 HTML
           pandoc ae2.md -o content.html \
             --standalone \
             --metadata pagetitle="Applied Energistics 2 Tutorial" \
             --metadata charset=utf-8
+          
+          # 提取 body 内容
           sed -n '/<body>/,/<\/body>/p' content.html | sed '1d;$d' > body-content.html
+          
+          # 创建最终 HTML 文件（使用 cat 和输出重定向，避免 heredoc 问题）
           cat > final.html << 'EOF'
           <!DOCTYPE html>
           <html>
@@ -182,7 +188,13 @@ jobs:
           </head>
           <body>
             <div class="content">
-              $(cat body-content.html)
+          EOF
+          
+          # 将 body 内容追加到 final.html
+          cat body-content.html >> final.html
+          
+          # 追加页脚和结束标签
+          cat >> final.html << 'EOF'
             </div>
             <div class="footer-note">
               <p>文档生成时间: ${{ steps.timestamp.outputs.current_time }}</p>
@@ -191,6 +203,8 @@ jobs:
           </body>
           </html>
           EOF
+          
+          # 使用 wkhtmltopdf 生成 PDF
           xvfb-run wkhtmltopdf \
             --enable-local-file-access \
             --encoding utf-8 \
@@ -204,6 +218,7 @@ jobs:
             --disable-smart-shrinking \
             final.html \
             ae2-documentation.pdf
+          
           if [ -f "ae2-documentation.pdf" ]; then
             echo "✅ PDF 编译成功"
             ls -lh ae2-documentation.pdf
@@ -212,7 +227,7 @@ jobs:
             exit 1
           fi
 
-      # 验证文件存在（增加跳过条件）
+      # 验证文件存在并设置路径
       - name: 验证文件存在并设置路径
         id: verify-file
         if: github.event_name != 'push' || steps.check-skip.outputs.skip_build != 'true'
@@ -231,7 +246,7 @@ jobs:
             exit 1
           fi
 
-      # 设置标签名和 Release 名称（增加跳过条件）
+      # 设置标签名和 Release 名称
       - name: 设置标签名
         id: set-tag
         if: github.event_name != 'push' || steps.check-skip.outputs.skip_build != 'true'
@@ -253,7 +268,7 @@ jobs:
             fi
           fi
 
-      # 生成 Release 说明（增加跳过条件）
+      # 生成 Release 说明
       - name: 生成 Release 说明
         id: release-body
         if: github.event_name != 'push' || steps.check-skip.outputs.skip_build != 'true'
@@ -283,7 +298,7 @@ jobs:
           echo "$BODY_CONTENT" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      # 上传到 Release（增加跳过条件）
+      # 上传到 Release
       - name: 上传到 Release
         uses: softprops/action-gh-release@v1
         if: github.event_name != 'push' || steps.check-skip.outputs.skip_build != 'true'
